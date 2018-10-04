@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
-from .api import Client
+from .api import API
+from .base import Icinga2ApiError
+from .base import Client
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"

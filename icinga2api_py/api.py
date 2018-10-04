@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Small client for easy access to the Icinga2 API.
 It has exactly one dependency: requests
@@ -28,7 +27,8 @@ import requests
 # Accepted HTTP methods
 HTTP_METHODS = ('GET', 'POST', 'PUT', 'DELETE')
 
-class Client:
+
+class API:
 	def __init__(self, host, auth, port=5665, uri_prefix='/v1', cert=False):
 		self.apicacert = cert
 		self.apiauthentication = auth
@@ -36,6 +36,9 @@ class Client:
 		self._base_url = "https://{}:{}{}/".format(host, port, uri_prefix)
 
 	def __getattr__(self, item):
+		return self.s(item)
+
+	def s(self, item):
 		return self._RequestBuilder(self, self._base_url, [item])
 
 	class _RequestBuilder:
@@ -91,5 +94,5 @@ class Client:
 			logging.getLogger(__name__).debug("API request to %s with %s", self._url, data)
 			# There is a always a method override in the header
 			return requests.post(self._url, data=data, params=kwargs,
-								 headers=self._headers, auth=self._client.apiauthentication,
-								 verify=self._client.apicacert)
+								headers=self._headers, auth=self._client.apiauthentication,
+								verify=self._client.apicacert)
