@@ -29,6 +29,7 @@ HTTP_METHODS = ('GET', 'POST', 'PUT', 'DELETE')
 
 
 class API:
+	"""This class is not documented, because the example show much better how it works than everything else could."""
 	def __init__(self, host, auth, port=5665, uri_prefix='/v1', verify=False, response_parser=None):
 		self.verify = verify
 		self.auth = auth
@@ -40,15 +41,16 @@ class API:
 		return self.s(item)
 
 	def s(self, item):
-		return self._RequestBuilder(self, self._base_url, [item])
+		return self._RequestBuilder(self, self._base_url, item)
 
 	class _RequestBuilder:
-		def __init__(self, client, base_url, builder_list):
+		def __init__(self, client, base_url, first_attr):
 			self.client = client
-			self._base_url = base_url  # Base URL (host, port, ...)
+			self._base_url = base_url  # Base URL (host, port, uri_prefix)
 			self._lastattr = None  # last attribute -> call to put in body, or not to add it to the URL
-			self._builder_list = builder_list  # URL Builder
-			self._body = {}
+			self._builder_list = []  # URL Builder
+			self.s(first_attr)  # __getattr__ or s() on API object -> simulate that
+			self._body = {}  # Request body as dictionary
 
 		def _attr(self, new=None):
 			if self._lastattr is not None:
@@ -69,11 +71,8 @@ class API:
 
 		def __call__(self, *args, **kwargs):
 			args = args[0] if len(args) == 1 else args
-			if self._lastattr in self._body:
-				if isinstance(self._body[self._lastattr], list):
-					self._body[self._lastattr] += args
-				elif args:
-					self._body[self._lastattr] = args
+			if self._lastattr in self._body and isinstance(self._body[self._lastattr], list):
+				self._body[self._lastattr] += args
 			elif args is not None:
 				self._body[self._lastattr] = args
 			self._lastattr = None
@@ -83,8 +82,8 @@ class API:
 		def __init__(self, client, url, body, method):
 			self.client = client
 			self.url = url
-			self.body = body
-			self.method = method
+			self.body = body  # HTTP body as dictionary.
+			self.method = method  # HTTP method to set X-HTTP-Method-Override later
 			self.request_args = {"verify": self.client.verify, "auth": self.client.auth}
 
 		def __call__(self, *args, **params):

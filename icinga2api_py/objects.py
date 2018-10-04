@@ -19,7 +19,8 @@ def parse_filter(filter):
 
 
 class Icinga2:
-	"""Object representing all general things of a Icinga2 instance (global variables, status, ...)"""
+	"""Central class of this OOP interface for the Icinga2 API.
+	An object of this class is needed for almost everything."""
 	def __init__(self, client, cache_time=60):
 		self.client = client
 		self.cache_time = cache_time
@@ -65,44 +66,66 @@ class Icinga2:
 			.ignore_on_error(bool(ignore_on_error)).put()
 
 	def get_templates(self, object_type, filter=None):
+		"""Get Icinga2 templates for a specified object type."""
 		return self.get(self.client.filter(parse_filter(filter)), "templates", object_type)
 
 	def get_template(self, object_type, name):
+		"""Get an Icinga2 template by object type and name."""
 		return self.get(self.client, "templates", [object_type, name])
 
 	def get_variables(self, filter=None):
+		"""Get Icinga2 variables."""
 		return self.get(self.client.filter(parse_filter(filter)), "variables", None)
 
 	def get_variable(self, name):
+		"""Get an Icinga2 variable by name."""
 		return self.get(self.client, "variables", name)
 
+	@property
+	def status(self):
+		"""Query status information and statistics of Icinga2."""
+		return self.get_status(None)
+
+	def get_status(self, status_type=None):
+		"""Get status information and statistics of Icinga2."""
+		return self.get(self.client, "status", status_type)
+
 	def action(self, action, filter=None, **parameters):
+		"""Process a action (for example "acknowledge-problem")."""
 		query = self.client.actions.s(action).filter(parse_filter(filter))
 		for parameter, value in parameters.items():
 			query = getattr(query, parameter)(value)
 		return query.post()
 
 	def get_stream(self, *url, **parameters):
+		"""Get a stream response from the specified URL endpoint and pass parameters for that."""
 		client = StreamClient.create_from_client(self.client)
 		query = client
 		for path in url:
 			query = query.s(path)
 		for parameter, value in parameters.items():
 			query = query.s(parameter)(value)
-		query.post()
+		return query.post()
 
-	# implement configuration management here? (todo?)
+	def console(self, command, session=None, sandboxed=None):
+		"""Usage of the Icinga2 (API) console feature."""
+		# TODO auto-completion is possible through a different URL endpoint
+		query = self.client.console.s("execute-script").command(command).session(session).sandboxed(sandboxed)
+		return query.post()
 
-	# TODO implement console
+	# TODO implement configuration management (?)
 
 
 class Host(Icinga2Object):
+	"""Representation of a Icinga2 Host object."""
 	@property
 	def services(self):
+		"""Get services of this host."""
 		query = self._query.client.objects.services.filter("host.name==\"{}\"".format(self.name)).get
 		return Icinga2Objects(query, cache_time=self._expiry)
 
 	def action(self, action, **parameters):
+		"""Process action for this host."""
 		query = self._query.client.actions.s(action).filter("host.name==\"{}\"".format(self.name))
 		for parameter, value in parameters.items():
 			query = getattr(query, parameter)(value)
@@ -112,10 +135,12 @@ class Host(Icinga2Object):
 class Service(Icinga2Object):
 	@property
 	def host(self):
+		"""Get host to wich this service beongs to."""
 		hostname = self["attrs"]["host_name"]
 		return Host(self._query.client.objects.hosts.s(hostname), hostname, cache_time=self._expiry)
 
 	def action(self, action, **parameters):
+		"""Process action for this service."""
 		query = self._query.client.actions.s(action)
 		for parameter, value in parameters.items():
 			query = getattr(query, parameter)(value)
@@ -123,6 +148,7 @@ class Service(Icinga2Object):
 
 
 class Templates(Icinga2Objects):
+	"""Representation of an Icinga2 templates."""
 	def __init__(self, query, data=None, cache_time=60):
 		super().__init__(query, data, cache_time=cache_time)
 		self.modify = None  # Not supported for templates
@@ -130,6 +156,7 @@ class Templates(Icinga2Objects):
 
 
 class Template(Icinga2Object):
+	"""Representation of an Icinga2 template."""
 	def __init__(self, query, name, data=None, cache_time=60):
 		super().__init__(query, name, data, cache_time=cache_time)
 		self.modify = None  # Not supported for templates

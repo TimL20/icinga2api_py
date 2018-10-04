@@ -25,10 +25,11 @@ class WrongObjectsCount(Exception):
 
 
 class NotExactlyOne(WrongObjectsCount):
-	"""Raised when an operation requiring exactly one object is executet, but there is not exactly one object."""
+	"""Raised when an operation requiring exactly one object is executed, but there is not exactly one object."""
 
 
 def parseAttrs(attrs):
+	"""Split attrs on dots, return attrs if it's not a string."""
 	if isinstance(attrs, str):
 		return attrs.split(".")
 	else:
@@ -48,6 +49,7 @@ class StreamClient(API):
 		self.Request = StreamClient.StreamRequest
 
 	class StreamRequest(API.Request):
+		"""API Request with stream set to true for the request."""
 		def __init__(self, *args, **kwargs):
 			super().__init__(*args, **kwargs)
 			self.request_args["stream"] = True
@@ -78,6 +80,9 @@ class Result(collections.abc.Mapping):
 	def __iter__(self):
 		return iter(self._data)
 
+	def __str__(self):
+		return str(self._data)
+
 
 class StreamResponse:
 	"""Access to response(s) of a streamed Icinga2 API response.
@@ -105,7 +110,7 @@ class Response(collections.abc.Sequence):
 	def _load(self):
 		"""Parses response to results and store results. It's a separate method to make overriding easy."""
 		try:
-			data = self._response.json()  # Works also with Response responses because of __getattr__
+			data = self.response.json()  # Works also with Response responses because of __getattr__
 			self._results = tuple(data["results"])
 		except json.decoder.JSONDecodeError:
 			raise Icinga2ApiError("Failed to parse JSON response.")
@@ -133,7 +138,7 @@ class Response(collections.abc.Sequence):
 
 	def __getattr__(self, attr):
 		"""Try to get a not existing attribute from the response object instead."""
-		return getattr(self._response, attr)
+		return getattr(self.response, attr)
 
 	def __getitem__(self, index):
 		"""One result at the given index."""
@@ -149,6 +154,10 @@ class Response(collections.abc.Sequence):
 			return bool(self.results)
 		except (TypeError, KeyError, requests.exceptions.RequestException):
 			return False
+
+	def __str__(self):
+		res = "no" if not bool(self) else len(self)
+		return "<Response [{}], {} results>".format(self.response.status_code, res)
 
 	###################################################################################################################
 	# Enhanced access to result data ##################################################################################
@@ -226,7 +235,7 @@ class Icinga2Objects(Response):
 		"""Loads response with the use of the query passed to the constructor."""
 		kwargs = {"all_joins": 1} if self.all_joins else {}
 		res = self._query(**kwargs)
-		self._response = res.response if isinstance(res, Response) else res  # TODO ????
+		self._response = res.response if isinstance(res, Response) else res
 		return super()._load()
 
 	@property
@@ -236,6 +245,15 @@ class Icinga2Objects(Response):
 		if self._expires < time.time():
 			self.load()
 		return super().results
+
+	@property
+	def response(self):
+		"""The received response, a requests.Response object."""
+		if self._response is None or self._expires < time.time():
+			self.load()
+		if self._response is None:
+			raise Icinga2ApiError("Failed to load response.")
+		return self._response
 
 	def load(self):
 		"""Method to force loading."""
@@ -264,6 +282,7 @@ class Icinga2Objects(Response):
 		return query
 
 	def modify(self, attrs):
+		"""Modify this/these objects; set the given attributes (dictionary)."""
 		mquery = copy.copy(self._query)  # Shallow copy of this query Request
 		mquery.method = "POST"
 		mquery.body = dict(self._query.body)  # copy original body (filter and such things)
@@ -271,6 +290,7 @@ class Icinga2Objects(Response):
 		return mquery()  # Execute modify query
 
 	def delete(self, cascade=False):
+		"""Delete this/these objects, cascade that if set to True."""
 		mquery = copy.copy(self._query)  # Shallow copy of this query Request
 		mquery.method = "DELETE"
 		mquery.body = dict(self._query.body)  # copy original body (filter and such things)
@@ -294,7 +314,7 @@ class Icinga2Object(Icinga2Objects, collections.abc.Mapping):
 
 	@property
 	def name(self):
-		"""Name of this object."""
+		"""Name of this Icinga2 object. Only singular object have a name."""
 		return self._name
 
 	def _load(self):
@@ -309,6 +329,8 @@ class Icinga2Object(Icinga2Objects, collections.abc.Mapping):
 		return Response.get_object(self, 0)
 
 	def __getitem__(self, item):
+		if isinstance(item, int):
+			return self.get_object(item)
 		return self.get_object()[item]
 
 	def __len__(self):
@@ -317,6 +339,9 @@ class Icinga2Object(Icinga2Objects, collections.abc.Mapping):
 	def __iter__(self):
 		"""Iterate over the result mapping object."""
 		return iter(self.get_object())
+
+	def __str__(self):
+		return str(self.get_object())
 
 	def return_one(self):
 		"""Override method of Response, to avoid trouble."""
