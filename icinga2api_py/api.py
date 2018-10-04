@@ -8,8 +8,9 @@ All responses are directly from a requests.post() call, from here you have to pr
 Usage:
 Some usage examples
 ```
-from icinga2api_pylib.api import Client
-client = Client("localhost", ("user", "pass"))
+from icinga2api_py.api import API
+client = API("localhost", ("user", "pass"))
+icinga_pid = client.status.IcingaApplication.get().json()["results"][0]["status"]["icingaapplication"]["app"]["pid"]
 
 response = client.objects.services.joins(["host.state"]).attrs(["name", "state"]).filter("host.name==\"localhost\"").get()
 # that line does exactly the same as the following line:
@@ -29,9 +30,10 @@ HTTP_METHODS = ('GET', 'POST', 'PUT', 'DELETE')
 
 
 class API:
-	def __init__(self, host, auth, port=5665, uri_prefix='/v1', cert=False):
-		self.apicacert = cert
-		self.apiauthentication = auth
+	def __init__(self, host, auth, port=5665, uri_prefix='/v1', verify=False, response_parser=None):
+		self.verify = verify
+		self.auth = auth
+		self.response_parser = response_parser
 
 		self._base_url = "https://{}:{}{}/".format(host, port, uri_prefix)
 
@@ -43,10 +45,10 @@ class API:
 
 	class _RequestBuilder:
 		def __init__(self, client, base_url, builder_list):
-			self._client = client
-			self._base_url = base_url # Base URL (host, port, ...)
-			self._lastattr = None # last attribute -> call to put in body, or not to add it to the URL
-			self._builder_list = builder_list # URL Builder
+			self.client = client
+			self._base_url = base_url  # Base URL (host, port, ...)
+			self._lastattr = None  # last attribute -> call to put in body, or not to add it to the URL
+			self._builder_list = builder_list  # URL Builder
 			self._body = {}
 
 		def _attr(self, new=None):
@@ -63,14 +65,11 @@ class API:
 		def s(self, string):
 			if string.upper() in HTTP_METHODS:
 				self._attr()
-				return self._client.Request(self._client, self._base_url+"/".join(self._builder_list), self._body, string.upper())
+				return self.client.Request(self.client, self._base_url+"/".join(self._builder_list), self._body, string.upper())
 			return self._attr(string)
 
 		def __call__(self, *args, **kwargs):
-			if len(args) == 1:
-				args = args[0]
-			else:
-				args = list(args)
+			args = args[0] if len(args) == 1 else list(args)
 			if self._lastattr in self._body:
 				if isinstance(self._body[self._lastattr], list):
 					self._body[self._lastattr] += args
@@ -83,7 +82,7 @@ class API:
 
 	class Request:
 		def __init__(self, client, url, body, method):
-			self._client = client
+			self.client = client
 			self._url = url
 			self._body = body
 			self._method = method
@@ -93,6 +92,7 @@ class API:
 			data = json.dumps(self._body)
 			logging.getLogger(__name__).debug("API request to %s with %s", self._url, data)
 			# There is a always a method override in the header
-			return requests.post(self._url, data=data, params=kwargs,
-								headers=self._headers, auth=self._client.apiauthentication,
-								verify=self._client.apicacert)
+			r = requests.post(self._url, data=data, params=kwargs,
+								headers=self._headers, auth=self.client.auth,
+								verify=self.client.verify)
+			return r if self.client.response_parser is None else self.client.response_parser(r)
