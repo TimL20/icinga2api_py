@@ -9,6 +9,7 @@ import json
 import collections.abc
 import requests.exceptions
 import time
+import copy
 
 
 class Icinga2ApiError(Exception):
@@ -200,13 +201,27 @@ class Icinga2Objects(Response):
 		"""Extends the Response.results property access with timed caching. The response is reloaded when it's older
 		than the configured expiry time."""
 		if self._expires < time.time():
-			self._load()
-			self._expires = int(time.time()) + self._expiry
+			self.load()
 		return super().results
 
 	def load(self):
 		"""Method to force loading."""
 		self._load()
+		self._expires = int(time.time()) + self._expiry
+
+	def modify(self, attrs):
+		mquery = copy.copy(self._query)  # Shallow copy of this query Request
+		mquery.method = "POST"
+		mquery.body = dict(self._query.body)  # copy original body (filter and such things)
+		mquery.body["attrs"] = attrs  # Set new attributes
+		return mquery()  # Execute modify query
+
+	def delete(self, cascade):
+		mquery = copy.copy(self._query)  # Shallow copy of this query Request
+		mquery.method = "DELETE"
+		mquery.body = dict(self._query.body)  # copy original body (filter and such things)
+		cascade = 1 if cascade else 0
+		return mquery(cascade=cascade)  # Execute modify query
 
 
 class Icinga2Object(Icinga2Objects, collections.abc.Mapping):

@@ -83,16 +83,15 @@ class API:
 	class Request:
 		def __init__(self, client, url, body, method):
 			self.client = client
-			self._url = url
-			self._body = body
-			self._method = method
-			self._headers = {'Accept': 'application/json', 'X-HTTP-Method-Override': method.upper()}
+			self.url = url
+			self.body = body
+			self.method = method
 
 		def __call__(self, *args, **kwargs):
-			data = json.dumps(self._body)
-			logging.getLogger(__name__).debug("API request to %s with %s", self._url, data)
-			# There is a always a method override in the header
-			r = requests.post(self._url, data=data, params=kwargs,
-								headers=self._headers, auth=self.client.auth,
-								verify=self.client.verify)
+			data = json.dumps(self.body)
+			logging.getLogger(__name__).debug("API request to %s with %s", self.url, data)
+			# Method override as default
+			headers = {'Accept': 'application/json', 'X-HTTP-Method-Override': self.method.upper()}
+			r = requests.post(self.url, data=data, params=kwargs,
+								headers=headers, auth=self.client.auth, verify=self.client.verify)
 			return r if self.client.response_parser is None else self.client.response_parser(r)

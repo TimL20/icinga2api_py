@@ -14,18 +14,33 @@ class Icinga2:
 		self.client = client
 		self.cache_time = cache_time
 
-	def get_object(self, type, name):
-		"""Get an object by it's type and name."""
+	def get(self, query_base, type, query_end, name=None):
+		"""Get a appropriate python object to represent whatever is queried with the query.
+		The query is built in this method, with query_base as start, then the type, then the query_end.
+		This method assumes, that a named object is singular (= one object). The name is not used for building the query,
+		but it's passed to any Icinga2Object constructor.
+		This method is usually used by other methods of this class."""
 		type = type.lower()
 		# Special case(s)
 		if type == Icinga2.__name__:
-			return Icinga2(self.client)
-		# In all other cases: get class for the specified type, and create an object of this class
+			return Icinga2(self.client, self.cache_time)
 		class_ = getattr(sys.modules[__name__], type.title(), None)
-		type = type if type[-1:] == "s" else type + "s"
+		initargs = {"cache_time": self.cache_time}
+		singular = name is not None  # it's one object if it has a name
+		if singular:
+			initargs["name"] = name
+			type = type + "s"  # for query building
+		query = query_base.s(type)
+		if query_end is not None:
+			for i in query_end:
+				query = getattr(query, i, None)
 		if class_ is not None:
-			return class_(self.client.objects.s(type).s(name).get, name, cache_time=self.cache_time)
-		return Icinga2Object(self.client.objects.s(type).s(name).get, name, cache_time=self.cache_time)
+			return class_(query.get, **initargs)
+		return Icinga2Object(query.get, **initargs)
+
+	def get_object(self, type, name):
+		"""Get an object by it's type and name."""
+		return self.get(self.client.objects, type, name, name)
 
 	def get_objects(self, type, filter):
 		"""Get an Icinga2Objects object by type and a filter. The given filter could be a filter string, a list of
@@ -36,13 +51,13 @@ class Icinga2:
 			for attribute, value in filter.items():
 				filterlist.append("{}=={}".format(attribute, value))
 			filterstring = " && ".join(filterlist)
-		# Get class for specified type
+		return self.get(self.client.objects.filter(filterstring), type, None)
+
+	def create_object(self, type, name, templates, attrs, ignore_on_error):
 		type = type.lower()
 		type = type if type[-1:] == "s" else type + "s"
-		class_ = getattr(sys.modules[__name__], type.title(), None)
-		if class_ is not None:
-			return class_(self.client.objects.s(type).filter(filterstring).get, cache_time=self.cache_time)
-		return Icinga2Objects(self.client.objects.s(type).filter(filterstring).get, cache_time=self.cache_time)
+		return self.client.objects.s(type).s(name).templates(list(templates)).attrs(attrs)\
+			.ignore_on_error(bool(ignore_on_error))
 
 	# implement actions here? (todo?)
 
@@ -52,18 +67,15 @@ class Icinga2:
 
 
 class Host(Icinga2Object):
-	def __init__(self, query, name, data=None, cache_time=60):
-		super().__init__(query, name, data, cache_time)
+	@property
+	def services(self):
+		query = self._query.client.objects.services.filter("host.name==\"{}\"".format(self.name)).get
+		return Services(query, cache_time=self._expiry)
 
-	# TODO add get services
-
-	# TODO create / modify / delete
+	# TODO add actions (reschedule, ack, ..)
 
 
 class Hosts(Icinga2Objects):
-	def __init__(self, query, data=None, cache_time=60):
-		super().__init__(query, data, cache_time)
-
 	def _create_object(self, index):
 		return Host.get_object(self._query.client, self._response[index]["name"])
 
@@ -71,16 +83,16 @@ class Hosts(Icinga2Objects):
 
 
 class Service(Icinga2Object):
-	def __init__(self, query, name, data=None, cache_time=60):
-		super().__init__(query, name, data, cache_time)
+	@property
+	def host(self):
+		hostname = self["attrs"]["host_name"]
+		return Host(self._query.client.objects.hosts.s(hostname), hostname, cache_time=self._expiry)
 
-	# TODO create / modify / delete
+	# TODO add actions (reschedule, ack, ..)
 
 
 class Services(Icinga2Objects):
-	def __init__(self, query, data=None, cache_time=60):
-		super().__init__(query, data, cache_time)
-
+	pass
 	# TODO add actions (reschedule, ack, ...)
 
 
@@ -102,3 +114,21 @@ class Servicegroups(Icinga2Objects):
 
 class EventStream:
 	pass  # TODO implement
+
+
+class Templates(Icinga2Objects):
+	def __init__(self, query, data=None, cache_time=60):
+		super().__init__(query, data, cache_time=cache_time)
+		self.modify = None  # Not supported for templates
+		self.delete = None  # Not supported for templates
+
+	# Templates and events seem to have similarities, is it possible to unite them??? (todo?)
+
+
+class Template(Icinga2Object):
+	def __init__(self, query, name, data=None, cache_time=60):
+		super().__init__(query, name, data, cache_time=cache_time)
+		self.modify = None  # Not supported for templates
+		self.delete = None  # Not supported for templates
+
+
