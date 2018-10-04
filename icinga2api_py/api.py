@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Small client for easy access to the Icinga2 API.
-It has exactly one dependency: requests
+"""Small client for easy access to the Icinga2 API. Famous python package requests is needed as a dependency.
 
 This client is really dump and has not much ideas about how the Icinga2 API works.
 All responses are directly from a requests.post() call, from here you have to process them by yourself.
@@ -69,13 +68,13 @@ class API:
 			return self._attr(string)
 
 		def __call__(self, *args, **kwargs):
-			args = args[0] if len(args) == 1 else list(args)
+			args = args[0] if len(args) == 1 else args
 			if self._lastattr in self._body:
 				if isinstance(self._body[self._lastattr], list):
 					self._body[self._lastattr] += args
 				elif args:
 					self._body[self._lastattr] = args
-			elif args:
+			elif args is not None:
 				self._body[self._lastattr] = args
 			self._lastattr = None
 			return self
@@ -86,12 +85,13 @@ class API:
 			self.url = url
 			self.body = body
 			self.method = method
+			self.request_args = {"verify": self.client.verify, "auth": self.client.auth}
 
-		def __call__(self, *args, **kwargs):
+		def __call__(self, *args, **params):
 			data = json.dumps(self.body)
-			logging.getLogger(__name__).debug("API request to %s with %s", self.url, data)
-			# Method override as default
 			headers = {'Accept': 'application/json', 'X-HTTP-Method-Override': self.method.upper()}
-			r = requests.post(self.url, data=data, params=kwargs,
-								headers=headers, auth=self.client.auth, verify=self.client.verify)
+			kwargs = {"data": data, "params": params, "headers": headers}
+			kwargs.update(self.request_args)  # To make overriding easy, especially for child classes
+			logging.getLogger(__name__).debug("API request to %s with %s", self.url, kwargs["data"])
+			r = requests.post(self.url, **kwargs)
 			return r if self.client.response_parser is None else self.client.response_parser(r)

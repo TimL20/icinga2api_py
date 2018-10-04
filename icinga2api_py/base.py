@@ -9,6 +9,7 @@ import json
 import collections.abc
 import requests.exceptions
 import time
+import logging
 import copy
 
 
@@ -22,6 +23,7 @@ class WrongObjectsCount(Exception):
 	For example there are Operations requiring at least one object, so this exception is raised when there is no object.
 	"""
 
+
 class NotExactlyOne(WrongObjectsCount):
 	"""Raised when an operation requiring exactly one object is executet, but there is not exactly one object."""
 
@@ -34,9 +36,28 @@ def parseAttrs(attrs):
 
 
 class Client(API):
-	"""Icinga2 API client."""
-	def __init__(self, host, auth, port=5665, uri_prefix='/v1', verify=False):
-		super().__init__(host, auth, port, uri_prefix, verify, response_parser=Response)
+	"""Icinga2 API client for not-streaming content."""
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs, response_parser=Response)
+
+
+class StreamClient(API):
+	"""Icinga2 API client for streamed responses."""
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs, response_parser=StreamResponse)
+		self.Request = StreamClient.StreamRequest
+
+	class StreamRequest(API.Request):
+		def __init__(self, *args, **kwargs):
+			super().__init__(*args, **kwargs)
+			self.request_args["stream"] = True
+
+	@staticmethod
+	def create_from_client(client):
+		"""Creation of a StreamClient from a Client."""
+		res = copy.copy(client)  # Create shallow copy of client
+		res.Request = StreamClient.StreamRequest
+		res.response_parser = StreamResponse
 
 
 class Result(collections.abc.Mapping):
@@ -58,10 +79,22 @@ class Result(collections.abc.Mapping):
 		return iter(self._data)
 
 
+class StreamResponse:
+	"""Access to response(s) of a streamed Icinga2 API response.
+	Streamed responses are separated by new lines according to the Icinga2 API documentation."""
+	def __init__(self, response):
+		self._response = response
+
+	def iter_responses(self):
+		"""Iterate over responses, wich are returned as Result objects."""
+		for line in self._response.iter_lines():
+			yield Result(json.loads(line))
+
+
 class Response(collections.abc.Sequence):
 	"""Access to an Icinga2 API Response"""
 	def __init__(self, response):
-		self._response = response if response else None
+		self._response = response
 		self._results = None
 
 	@property
@@ -209,6 +242,27 @@ class Icinga2Objects(Response):
 		self._load()
 		self._expires = int(time.time()) + self._expiry
 
+	###################################################################################################################
+	# Actions #########################################################################################################
+	###################################################################################################################
+
+	def action(self, action, **parameters):
+		"""Process an action with specified parameters. This method works only, because each and every object query 
+		result has object type (type) and full object name (name) for the object. It is assumed, that the type is the
+		same for all objects (should be...). With this information, a filter is created, that should match all Icinga2
+		objects represented by self."""
+		if len(self) < 1:
+			return None
+		type = self[0]["type"].lower()
+		names = [obj["name"] for obj in self]
+		logging.getLogger(__name__).debug("Processing action {} for {} objects of type {}".format(action, len(names), type))
+		fstring = "\" or {}.name==\"".format(type)
+		fstring = "{}.name==\"{}".format(type, fstring.join(names))
+		query = self._query.client.actions.s(action).filter(fstring)
+		for parameter, value in parameters.items():
+			query = query.s(parameter)(value)
+		return query
+
 	def modify(self, attrs):
 		mquery = copy.copy(self._query)  # Shallow copy of this query Request
 		mquery.method = "POST"
@@ -216,12 +270,12 @@ class Icinga2Objects(Response):
 		mquery.body["attrs"] = attrs  # Set new attributes
 		return mquery()  # Execute modify query
 
-	def delete(self, cascade):
+	def delete(self, cascade=False):
 		mquery = copy.copy(self._query)  # Shallow copy of this query Request
 		mquery.method = "DELETE"
 		mquery.body = dict(self._query.body)  # copy original body (filter and such things)
 		cascade = 1 if cascade else 0
-		return mquery(cascade=cascade)  # Execute modify query
+		return mquery(cascade=cascade)  # Execute delete query
 
 
 class Icinga2Object(Icinga2Objects, collections.abc.Mapping):
