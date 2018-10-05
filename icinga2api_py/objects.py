@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Representations of Icinga2 objects.
+"""OOP access to Icinga2 and it's objects.
 """
 
 import sys

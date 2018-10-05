@@ -17,14 +17,7 @@ class Icinga2ApiError(Exception):
 	"""Indication, that something went wrong when communicating with the Icinga2 API."""
 
 
-class WrongObjectsCount(Exception):
-	"""Raised when an operation requiring a particular number of objects is executed, but the number of object returned
-	by Icinga is a different one.
-	For example there are Operations requiring at least one object, so this exception is raised when there is no object.
-	"""
-
-
-class NotExactlyOne(WrongObjectsCount):
+class NotExactlyOne(Exception):
 	"""Raised when an operation requiring exactly one object is executed, but there is not exactly one object."""
 
 
@@ -207,12 +200,6 @@ class Response(collections.abc.Sequence):
 					return False
 		return i >= min
 
-	def return_one(self):
-		"""One result object. Raises an exception, if there is not only one result."""
-		if len(self.results) != 1:
-			raise NotExactlyOne("Required exactly one object, found %d", len(self.results))
-		return self[0]  # calls __getitem__
-
 
 class Icinga2Objects(Response):
 	"""Object representing more than one Icinga2 object.
@@ -231,13 +218,6 @@ class Icinga2Objects(Response):
 		self._expiry = cache_time
 		self._expires = cache_time
 
-	def _load(self):
-		"""Loads response with the use of the query passed to the constructor."""
-		kwargs = {"all_joins": 1} if self.all_joins else {}
-		res = self._query(**kwargs)
-		self._response = res.response if isinstance(res, Response) else res
-		return super()._load()
-
 	@property
 	def results(self):
 		"""Extends the Response.results property access with timed caching. The response is reloaded when it's older
@@ -248,9 +228,13 @@ class Icinga2Objects(Response):
 
 	@property
 	def response(self):
-		"""The received response, a requests.Response object."""
+		"""requests.Response object, that is the original data source from the Icinga2 API.
+		The response property is used by _load() from Response, so it should not call _load().
+		Loads response with use of the query passed to the constructor if necessary."""
 		if self._response is None or self._expires < time.time():
-			self.load()
+			kwargs = {"all_joins": 1} if self.all_joins else {}
+			res = self._query(**kwargs)
+			self._response = res.response if isinstance(res, Response) else res
 		if self._response is None:
 			raise Icinga2ApiError("Failed to load response.")
 		return self._response
