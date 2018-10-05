@@ -29,54 +29,42 @@ HTTP_METHODS = ('GET', 'POST', 'PUT', 'DELETE')
 
 
 class API:
-	"""This class is not documented, because the example show much better how it works than everything else could."""
+	"""This class is not documented, because the examples show much better how it works than everything else could."""
 	def __init__(self, host, auth, port=5665, uri_prefix='/v1', verify=False, response_parser=None):
 		self.verify = verify
 		self.auth = auth
 		self.response_parser = response_parser
 
 		self._base_url = "https://{}:{}{}/".format(host, port, uri_prefix)
+		self._lastattr = None  # last attribute -> call to put in body, or not to add it to the URL
+		self._builder_list = []  # URL Builder
+		self._body = {}  # Request body as dictionary
+
+	def _rotate_attr(self, new=None):
+		if self._lastattr is not None:
+			self._builder_list.append(self._lastattr)
+			self._lastattr = None
+		if new is not None:
+			self._lastattr = new
+		return self
 
 	def __getattr__(self, item):
 		return self.s(item)
 
 	def s(self, item):
-		return self._RequestBuilder(self, self._base_url, item)
+		if item.upper() in HTTP_METHODS:
+			self._rotate_attr()
+			return self.Request(self, self._base_url + "/".join(self._builder_list), self._body, item.upper())
+		return self._rotate_attr(item)
 
-	class _RequestBuilder:
-		def __init__(self, client, base_url, first_attr):
-			self.client = client
-			self._base_url = base_url  # Base URL (host, port, uri_prefix)
-			self._lastattr = None  # last attribute -> call to put in body, or not to add it to the URL
-			self._builder_list = []  # URL Builder
-			self.s(first_attr)  # __getattr__ or s() on API object -> simulate that
-			self._body = {}  # Request body as dictionary
-
-		def _attr(self, new=None):
-			if self._lastattr is not None:
-				self._builder_list.append(self._lastattr)
-				self._lastattr = None
-			if new is not None:
-				self._lastattr = new
-			return self
-
-		def __getattr__(self, item):
-			return self.s(item)
-
-		def s(self, string):
-			if string.upper() in HTTP_METHODS:
-				self._attr()
-				return self.client.Request(self.client, self._base_url+"/".join(self._builder_list), self._body, string.upper())
-			return self._attr(string)
-
-		def __call__(self, *args, **kwargs):
-			args = args[0] if len(args) == 1 else args
-			if self._lastattr in self._body and isinstance(self._body[self._lastattr], list):
-				self._body[self._lastattr] += args
-			elif args is not None:
-				self._body[self._lastattr] = args
-			self._lastattr = None
-			return self
+	def __call__(self, *args, **kwargs):
+		args = args[0] if len(args) == 1 else args
+		if self._lastattr in self._body and isinstance(self._body[self._lastattr], list):
+			self._body[self._lastattr] += args
+		elif args is not None:
+			self._body[self._lastattr] = args
+		self._lastattr = None
+		return self
 
 	class Request:
 		def __init__(self, client, url, body, method):
