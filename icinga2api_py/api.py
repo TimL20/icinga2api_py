@@ -38,6 +38,9 @@ class API:
 		self.response_parser = response_parser
 
 		self.base_url = "https://{}:{}{}/".format(host, port, uri_prefix)
+		self._reset()
+
+	def _reset(self):
 		self._lastattr = None  # last attribute -> call to put in body, or not to add it to the URL
 		self._builder_list = []  # URL Builder
 		self._body = {}  # Request body as dictionary
@@ -56,7 +59,9 @@ class API:
 	def s(self, item):
 		if item.upper() in HTTP_METHODS:
 			self._rotate_attr()
-			return self.Request(self, self.base_url + "/".join(self._builder_list), self._body, item.upper())
+			ret = self.Request(self, self.base_url + "/".join(self._builder_list), self._body, item.upper())
+			self._reset()
+			return ret
 		return self._rotate_attr(item)
 
 	def __call__(self, *args, **kwargs):

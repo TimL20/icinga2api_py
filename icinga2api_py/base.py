@@ -34,8 +34,13 @@ class Client(API):
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs, response_parser=Response)
 
+	def add_body_parameters(self, **parameters):
+		for parameter, value in parameters.items():
+			self.s(parameter)(value)
+		return self
 
-class StreamClient(API):
+
+class StreamClient(Client):
 	"""Icinga2 API client for streamed responses."""
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs, response_parser=StreamResponse)
@@ -243,6 +248,12 @@ class Icinga2Objects(Response):
 		"""Method to force loading."""
 		self._load()
 		self._expires = int(time.time()) + self._expiry
+
+	@property
+	def one(self):
+		if len(self) != 1:
+			raise NotExactlyOne("Recuired exactly one object, found {}".format(len(self)))
+		return Icinga2Object(self._query, self[0]["name"], self.response)
 
 	###################################################################################################################
 	# Actions #########################################################################################################
