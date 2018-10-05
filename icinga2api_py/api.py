@@ -3,6 +3,7 @@
 
 This client is really dump and has not much ideas about how the Icinga2 API works.
 All responses are directly from a requests.post() call, from here you have to process them by yourself.
+Nothing here is thread-safe, create shallow copies for usage in different threads.
 
 Usage:
 Some usage examples
@@ -30,12 +31,13 @@ HTTP_METHODS = ('GET', 'POST', 'PUT', 'DELETE')
 
 class API:
 	"""This class is not documented, because the examples show much better how it works than everything else could."""
-	def __init__(self, host, auth, port=5665, uri_prefix='/v1', verify=False, response_parser=None):
+	def __init__(self, host, auth=tuple(), cert_auth=tuple(), port=5665, uri_prefix='/v1', verify=False, response_parser=None):
 		self.verify = verify
-		self.auth = auth
+		self.auth = auth  # Basic auth tuple (username, password)
+		self.cert = cert_auth  # Client side authentication (certificate, key) tuple
 		self.response_parser = response_parser
 
-		self._base_url = "https://{}:{}{}/".format(host, port, uri_prefix)
+		self.base_url = "https://{}:{}{}/".format(host, port, uri_prefix)
 		self._lastattr = None  # last attribute -> call to put in body, or not to add it to the URL
 		self._builder_list = []  # URL Builder
 		self._body = {}  # Request body as dictionary
@@ -54,7 +56,7 @@ class API:
 	def s(self, item):
 		if item.upper() in HTTP_METHODS:
 			self._rotate_attr()
-			return self.Request(self, self._base_url + "/".join(self._builder_list), self._body, item.upper())
+			return self.Request(self, self.base_url + "/".join(self._builder_list), self._body, item.upper())
 		return self._rotate_attr(item)
 
 	def __call__(self, *args, **kwargs):
@@ -72,7 +74,12 @@ class API:
 			self.url = url
 			self.body = body  # HTTP body as dictionary.
 			self.method = method  # HTTP method to set X-HTTP-Method-Override later
-			self.request_args = {"verify": self.client.verify, "auth": self.client.auth}
+			self.request_args = {"verify": self.client.verify}
+			if self.client.cert:
+				self.request_args["cert"] = self.client.cert
+			else:
+				self.request_args["auth"] = self.client.auth
+			# TODO look at requests.Session and requests.Request, could that make an improvement?
 
 		def __call__(self, *args, **params):
 			data = json.dumps(self.body)

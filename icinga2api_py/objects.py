@@ -4,6 +4,7 @@
 
 import sys
 import collections.abc
+from .api import API
 from .base import StreamClient
 from .base import Icinga2Objects
 from .base import Icinga2Object
@@ -20,10 +21,45 @@ def parse_filter(filter):
 
 class Icinga2:
 	"""Central class of this OOP interface for the Icinga2 API.
-	An object of this class is needed for almost everything."""
+	An object of this class is needed for a lot of things of the OOP interface.
+	This class is absolutely not thread-safe. Create a shallow copy when you like to "share" it beyond one thread."""
 	def __init__(self, client, cache_time=60):
 		self.client = client
 		self.cache_time = cache_time
+		self.query = client
+
+	def __getattr__(self, item):
+		self.query = self.query.s(item)
+		return self
+
+	def __call__(self, *args, **kwargs):
+		if isinstance(self.query, API.Request):
+			# Guess type from URL
+			type = self.query.url[self.query.url.find(self.client.base_url)+len(self.client.base_url):]
+			type = "" if not type else type
+			name = None if not args else args[0]  # Also possible to set via kwargs
+			obj = self._object_from_query(type, self.query, name, **kwargs)
+			self.query = self.client
+			return obj
+		self.query = self.query(*args, **kwargs)
+		return self
+
+	def _object_from_query(self, type, query, name=None, **kwargs):
+		"""Get a appropriate python object to represent whatever is queried with the query.
+		This method assumes, that a named object is singular (= one object). The name is not used for building the query,
+		but it's passed to any Icinga2Object constructor.
+		Remaining kwargs are passed to the constructor (Icinga2Object, Host, ...)."""
+		class_ = getattr(sys.modules[__name__], type.title(), None)
+		initargs = {"cache_time": self.cache_time}
+		singular = name is not None  # it's one object if it has a name
+		if singular:
+			initargs["name"] = name
+		initargs.update(kwargs)
+		if class_ is not None:
+			return class_(query, **initargs)
+		if singular:
+			return Icinga2Object(query, **initargs)
+		return Icinga2Objects(query, **initargs)
 
 	def get(self, query_base, type, query_end, name=None):
 		"""Get a appropriate python object to represent whatever is queried with the query.
