@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""OOP access to Icinga2 and it's objects.
+"""Object oriented access to Icinga2 and it's objects.
 """
 
 import logging
@@ -23,36 +23,46 @@ def parse_filter(filter):
 
 class Icinga2:
 	"""Central class of this OOP interface for the Icinga2 API.
-	An object of this class is needed for a lot of things of the OOP interface.
-	This class is absolutely not thread-safe. Create a shallow copy when you like to "share" it beyond one thread."""
+	An object of this class is needed for a lot of things of the OOP interface."""
 	def __init__(self, client, cache_time=60):
 		self.client = client
 		self.cache_time = cache_time
-		self.query = client
 
 	def __getattr__(self, item):
-		self.query = self.query.s(item)
-		return self
+		return self.s(item)
 
-	def __call__(self, *args, **kwargs):
-		if isinstance(self.query, API.Request):
-			# Reset query
-			query = self.query
-			self.query = self.client
-			# Guess type from URL
-			type = query.url[query.url.find(self.client.base_url)+len(self.client.base_url):]
-			type = "" if not type else (type[:-1] if type[-1:] == "s" else type).split("/", 2)[0]
-			if type == "object":
-				type = query.url[query.url.find(self.client.base_url) + len(self.client.base_url) + 7:]
-				type = "" if not type else (type[:-1] if type[-1:] == "s" else type).split("/", 3)
-				type = type[0] if len(type[0]) else type[1]
-			logging.getLogger(__name__).debug("Assumed type %s from URL %s", type, query.url)
-			name = None if not args else args[0]  # Also possible to set via kwargs
-			return self._object_from_query(type, query, name, **kwargs)
-		self.query = self.query(*args, **kwargs)
-		return self
+	def s(self, item):
+		return self.QueryBuilder(self).s(item)
 
-	def _object_from_query(self, type, query, name=None, **kwargs):
+	class QueryBuilder:
+		def __init__(self, icinga):
+			self.icinga = icinga
+			self.query = icinga.client
+
+		def __getattr__(self, item):
+			return self.s(item)
+
+		def s(self, item):
+			self.query = self.query.s(item)
+			return self
+
+		def __call__(self, *args, **kwargs):
+			if isinstance(self.query, API.Request):
+				# Guess type from URL
+				type = self.query.url[self.query.url.find(self.client.base_url)+len(self.client.base_url):]
+				type = "" if not type else (type[:-1] if type[-1:] == "s" else type).split("/", 2)[0]
+				if type == "object":
+					type = self.query.url[self.query.url.find(self.client.base_url) + len(self.client.base_url) + 7:]
+					type = "" if not type else (type[:-1] if type[-1:] == "s" else type).split("/", 3)
+					type = type[0] if len(type[0]) else type[1]
+				logging.getLogger(__name__).debug("Assumed type %s from URL %s", type, self.query.url)
+				name = None if not args else args[0]  # Also possible to set via kwargs
+				return self.icinga.object_from_query(type, self.query, name, **kwargs)
+			# else: (self.query is not an API.Request)
+			self.query = self.query(*args, **kwargs)
+			return self
+
+	def object_from_query(self, type, query, name=None, **kwargs):
 		"""Get a appropriate python object to represent whatever is queried with the query.
 		This method assumes, that a named object is singular (= one object). The name is not used for building the query,
 		but it's passed to any Icinga2Object constructor.
@@ -105,7 +115,7 @@ class Hosts(Icinga2Objects):
 	@property
 	def one(self):
 		if len(self) != 1:
-			raise NotExactlyOne("Recuired exactly one object, found {}".format(len(self)))
+			raise NotExactlyOne("Exactly one object required, found {}".format(len(self)))
 		return Host(self._query, self[0]["name"], self.response)
 
 
@@ -128,7 +138,7 @@ class Services(Icinga2Objects):
 	@property
 	def one(self):
 		if len(self) != 1:
-			raise NotExactlyOne("Recuired exactly one object, found {}".format(len(self)))
+			raise NotExactlyOne("Exactly one object required, found {}".format(len(self)))
 		return Service(self._query, self[0]["name"], self.response)
 
 

@@ -12,13 +12,9 @@ from icinga2api_py.api import API
 client = API("localhost", ("user", "pass"))
 icinga_pid = client.status.IcingaApplication.get().json()["results"][0]["status"]["icingaapplication"]["app"]["pid"]
 
-response = client.objects.services.joins(["host.state"]).attrs(["name", "state"]).filter("host.name==\"localhost\"").get()
-# that line does exactly the same as the following line:
-response = client.objects.services.attrs("name", "state").filter("host.name==\"localhost\"").joins(["host.state"]).get()
+localhost = client.objects.services.joins(["host.state"]).attrs("name", "state").filter("host.name==\"localhost\"").get()
 
 client.actions.s("reschedule-check").filter("service.name==\"ping4\" && host.name==\"localhost\"").type("Service").post()
-# that line does exactly the same as the following ugly line:
-client.actions.s("reschedule-check").s("filter")("service.name==\"ping4\" && host.name==\"localhost\"").s("type")("Service").s("post")()
 ```
 """
 import json
@@ -38,40 +34,47 @@ class API:
 		self.response_parser = response_parser
 
 		self.base_url = "https://{}:{}{}/".format(host, port, uri_prefix)
-		self._reset()
-
-	def _reset(self):
-		self._lastattr = None  # last attribute -> call to put in body, or not to add it to the URL
-		self._builder_list = []  # URL Builder
-		self._body = {}  # Request body as dictionary
-
-	def _rotate_attr(self, new=None):
-		if self._lastattr is not None:
-			self._builder_list.append(self._lastattr)
-			self._lastattr = None
-		if new is not None:
-			self._lastattr = new
-		return self
 
 	def __getattr__(self, item):
 		return self.s(item)
 
 	def s(self, item):
-		if item.upper() in HTTP_METHODS:
-			self._rotate_attr()
-			ret = self.Request(self, self.base_url + "/".join(self._builder_list), self._body, item.upper())
-			self._reset()
-			return ret
-		return self._rotate_attr(item)
+		return self.RequestBuilder(self).s(item)
 
-	def __call__(self, *args, **kwargs):
-		args = args[0] if len(args) == 1 else args
-		if self._lastattr in self._body and isinstance(self._body[self._lastattr], list):
-			self._body[self._lastattr] += args
-		elif args is not None:
-			self._body[self._lastattr] = args
-		self._lastattr = None
-		return self
+	class RequestBuilder:
+		def __init__(self, api):
+			self.api = api
+			self._lastattr = None  # last attribute -> call to put in body, or not to add it to the URL
+			self._builder_list = []  # URL Builder
+			self._body = {}  # Request body as dictionary
+
+		def _rotate_attr(self, new=None):
+			if self._lastattr is not None:
+				self._builder_list.append(self._lastattr)
+				self._lastattr = None
+			if new is not None:
+				self._lastattr = new
+			return self
+
+		def __getattr__(self, item):
+			return self.s(item)
+
+		def s(self, item):
+			if item.upper() in HTTP_METHODS:
+				self._rotate_attr()
+				ret = self.api.Request(self, self.base_url + "/".join(self._builder_list), self._body, item.upper())
+				self._reset()
+				return ret
+			return self._rotate_attr(item)
+
+		def __call__(self, *args, **kwargs):
+			args = args[0] if len(args) == 1 else args
+			if self._lastattr in self._body and isinstance(self._body[self._lastattr], list):
+				self._body[self._lastattr] += args
+			elif args is not None:
+				self._body[self._lastattr] = args
+			self._lastattr = None
+			return self
 
 	class Request:
 		def __init__(self, client, url, body, method):
@@ -84,7 +87,7 @@ class API:
 				self.request_args["cert"] = self.client.cert
 			else:
 				self.request_args["auth"] = self.client.auth
-			# TODO look at requests.Session and requests.Request, could that make an improvement?
+			# TODO look at requests.Session and requests.Request, could these make an improvement?
 
 		def __call__(self, *args, **params):
 			data = json.dumps(self.body)
