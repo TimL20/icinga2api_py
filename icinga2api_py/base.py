@@ -263,7 +263,7 @@ class Icinga2Objects(Response):
 		"""Process an action with specified parameters. This method works only, because each and every object query 
 		result has object type (type) and full object name (name) for the object. It is assumed, that the type is the
 		same for all objects (should be...). With this information, a filter is created, that should match all Icinga2
-		objects represented by self."""
+		objects represented."""
 		if len(self) < 1:
 			return None
 		type = self[0]["type"].lower()
