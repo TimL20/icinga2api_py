@@ -17,14 +17,7 @@ class Icinga2ApiError(Exception):
 	"""Indication, that something went wrong when communicating with the Icinga2 API."""
 
 
-class WrongObjectsCount(Exception):
-	"""Raised when an operation requiring a particular number of objects is executed, but the number of object returned
-	by Icinga is a different one.
-	For example there are Operations requiring at least one object, so this exception is raised when there is no object.
-	"""
-
-
-class NotExactlyOne(WrongObjectsCount):
+class NotExactlyOne(Exception):
 	"""Raised when an operation requiring exactly one object is executed, but there is not exactly one object."""
 
 
@@ -41,8 +34,13 @@ class Client(API):
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs, response_parser=Response)
 
+	def add_body_parameters(self, **parameters):
+		for parameter, value in parameters.items():
+			self.s(parameter)(value)
+		return self
 
-class StreamClient(API):
+
+class StreamClient(Client):
 	"""Icinga2 API client for streamed responses."""
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs, response_parser=StreamResponse)
@@ -207,12 +205,6 @@ class Response(collections.abc.Sequence):
 					return False
 		return i >= min
 
-	def return_one(self):
-		"""One result object. Raises an exception, if there is not only one result."""
-		if len(self.results) != 1:
-			raise NotExactlyOne("Required exactly one object, found %d", len(self.results))
-		return self[0]  # calls __getitem__
-
 
 class Icinga2Objects(Response):
 	"""Object representing more than one Icinga2 object.
@@ -231,13 +223,6 @@ class Icinga2Objects(Response):
 		self._expiry = cache_time
 		self._expires = cache_time
 
-	def _load(self):
-		"""Loads response with the use of the query passed to the constructor."""
-		kwargs = {"all_joins": 1} if self.all_joins else {}
-		res = self._query(**kwargs)
-		self._response = res.response if isinstance(res, Response) else res
-		return super()._load()
-
 	@property
 	def results(self):
 		"""Extends the Response.results property access with timed caching. The response is reloaded when it's older
@@ -248,9 +233,13 @@ class Icinga2Objects(Response):
 
 	@property
 	def response(self):
-		"""The received response, a requests.Response object."""
+		"""requests.Response object, that is the original data source from the Icinga2 API.
+		The response property is used by _load() from Response, so it should not call _load().
+		Loads response with use of the query passed to the constructor if necessary."""
 		if self._response is None or self._expires < time.time():
-			self.load()
+			kwargs = {"all_joins": 1} if self.all_joins else {}
+			res = self._query(**kwargs)
+			self._response = res.response if isinstance(res, Response) else res
 		if self._response is None:
 			raise Icinga2ApiError("Failed to load response.")
 		return self._response
@@ -260,6 +249,12 @@ class Icinga2Objects(Response):
 		self._load()
 		self._expires = int(time.time()) + self._expiry
 
+	@property
+	def one(self):
+		if len(self) != 1:
+			raise NotExactlyOne("Recuired exactly one object, found {}".format(len(self)))
+		return Icinga2Object(self._query, self[0]["name"], self.response)
+
 	###################################################################################################################
 	# Actions #########################################################################################################
 	###################################################################################################################
@@ -268,7 +263,7 @@ class Icinga2Objects(Response):
 		"""Process an action with specified parameters. This method works only, because each and every object query 
 		result has object type (type) and full object name (name) for the object. It is assumed, that the type is the
 		same for all objects (should be...). With this information, a filter is created, that should match all Icinga2
-		objects represented by self."""
+		objects represented."""
 		if len(self) < 1:
 			return None
 		type = self[0]["type"].lower()
