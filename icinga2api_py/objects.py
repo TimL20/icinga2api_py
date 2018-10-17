@@ -49,9 +49,9 @@ class Icinga2:
 		def __call__(self, *args, **kwargs):
 			if isinstance(self.query, API.Request):
 				# Guess type from URL
-				type = self.query.url[self.query.url.find(self.client.base_url)+len(self.client.base_url):]
+				type = self.query.url[self.query.url.find(self.icinga.client.base_url)+len(self.icinga.client.base_url):]
 				type = "" if not type else (type[:-1] if type[-1:] == "s" else type).split("/", 2)[0]
-				if type == "object":
+				if type == "objects":
 					type = self.query.url[self.query.url.find(self.client.base_url) + len(self.client.base_url) + 7:]
 					type = "" if not type else (type[:-1] if type[-1:] == "s" else type).split("/", 3)
 					type = type[0] if len(type[0]) else type[1]

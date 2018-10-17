@@ -43,7 +43,7 @@ class API:
 
 	class RequestBuilder:
 		def __init__(self, api):
-			self.api = api
+			self.api_client = api
 			self._lastattr = None  # last attribute -> call to put in body, or not to add it to the URL
 			self._builder_list = []  # URL Builder
 			self._body = {}  # Request body as dictionary
@@ -60,12 +60,11 @@ class API:
 			return self.s(item)
 
 		def s(self, item):
-			if item.upper() in HTTP_METHODS:
-				self._rotate_attr()
-				ret = self.api.Request(self, self.base_url + "/".join(self._builder_list), self._body, item.upper())
-				self._reset()
-				return ret
-			return self._rotate_attr(item)
+			if item.upper() not in HTTP_METHODS:
+				return self._rotate_attr(item)
+			self._rotate_attr()
+			url = self.api_client.base_url + "/".join(self._builder_list)
+			return self.api_client.Request(self.api_client, url, self._body, item.upper())
 
 		def __call__(self, *args, **kwargs):
 			args = args[0] if len(args) == 1 else args
