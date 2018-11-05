@@ -251,7 +251,8 @@ class Icinga2Objects(Response):
 
 	@property
 	def one(self):
-		if len(self) != 1:
+		# Check object count if loaded
+		if self._response is not None and len(self) != 1:
 			raise NotExactlyOne("Recuired exactly one object, found {}".format(len(self)))
 		return Icinga2Object(self._query, self[0]["name"], self.response)
 
