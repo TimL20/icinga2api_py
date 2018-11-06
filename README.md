@@ -30,6 +30,7 @@ localhost = icinga.objects.hosts.localhost.get()  # query the host localhost
 if not localhost["attrs"]["state"]:  # if state is not up
     print("Icinga seems to think, that it could run, even if it has no host to run on...")
 print("The host localhost has the following services:")
-print(", ".join(localhost.services))
+servicenames = [service["name"] for service in localhost.services]
+print(", ".join(servicenames))
 ```
  

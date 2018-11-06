@@ -8,7 +8,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
 	name="icinga2api_py",
-	version="0.3.1",
+	version="0.3.2",
 	author="TimL20",
 	description="Icinga2 API client for Python",
 	long_description=long_description,
@@ -19,7 +19,7 @@ setuptools.setup(
 	classifiers=[
 		"Programming Language :: Python :: 3",
 		"Operating System :: OS Independent",
-		"Development Status :: 2 - Pre-Alpha",
+		"Development Status :: 3 - Alpha",
 		"License :: OSI Approved :: BSD License"
 	],
 )

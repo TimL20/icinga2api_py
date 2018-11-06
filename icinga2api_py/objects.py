@@ -30,11 +30,16 @@ def parse_filter(filter):
 
 
 class Query:
+	"""OOP interface helper class, to return an Icinga2Objects object with a prepared request on call."""
 	def __init__(self, client, url, body, method):
 		self.client = client
 		self.url = url
 		self.body = body
 		self.method = method
+
+	@property
+	def request(self):
+		return API.Request(self.client, self.url, self.body, self.method)
 
 	def __call__(self, *args, **kwargs):
 		# Find object type and maybe name in URL
@@ -47,21 +52,20 @@ class Query:
 			# Information about type and name in URL is known
 			type_ = url[TYPES_AND_NAMES[basetype][0]]
 			namepos = TYPES_AND_NAMES[basetype][1]
-			name = url[namepos] if len(url) >= namepos else None
+			name = url[namepos] if len(url) > namepos else None
 		else:
 			# Default type guessing
 			type_ = basetype
 			name = None
 		# Cut last letter of plural form
-		type_ = type_[:-1] if type_[-1:] == "s" else type_
+		type_ = type_[:-1] if name is not None and type_[-1:] == "s" else type_
 		logging.getLogger(__name__).debug("Assumed type %s and name %s from URL %s", type_, name, self.url)
 
 		if "name" in kwargs:
 			name = kwargs["name"]
 			del kwargs["name"]
 
-		request = API.Request(self.client, self.url, self.body, self.method)
-		return self.client.object_from_query(type_, request, name, **kwargs)
+		return self.client.object_from_query(type_, self.request, name, **kwargs)
 
 
 class Icinga2(Client):
@@ -73,6 +77,14 @@ class Icinga2(Client):
 			del kwargs["cache_time"]
 		super().__init__(*args, **kwargs)
 		self.Request = Query
+
+	@property
+	def client(self):
+		"""Get non-OOP interface client."""
+		# Create client with None for all base_url things
+		client = Client(None, self.auth, self.cert, None, None, self.verify)
+		client.base_url = self.base_url
+		return client
 
 	def object_from_query(self, type, query, name=None, **kwargs):
 		"""Get a appropriate python object to represent whatever is queried with the query.
@@ -96,7 +108,7 @@ class Icinga2(Client):
 		type = type.lower()
 		type = type if type[-1:] == "s" else type + "s"
 		return self.client.objects.s(type).s(name).templates(list(templates)).attrs(attrs)\
-			.ignore_on_error(bool(ignore_on_error)).put()
+			.ignore_on_error(bool(ignore_on_error)).put()  # Fire request immediately
 
 	def console(self, command, session=None, sandboxed=None):
 		"""Usage of the Icinga2 (API) console feature."""
@@ -112,12 +124,12 @@ class Host(Icinga2Object):
 	@property
 	def services(self):
 		"""Get services of this host."""
-		query = self._query.client.objects.services.filter("host.name==\"{}\"".format(self.name)).get
-		return Icinga2Objects(query, cache_time=self._expiry)
+		query = self._query.client.client.objects.services.filter("host.name==\"{}\"".format(self.name)).get
+		return Services(query, cache_time=self._expiry)
 
 	def action(self, action, **parameters):
 		"""Process action for this host."""
-		query = self._query.client.actions.s(action).filter("host.name==\"{}\"".format(self.name))
+		query = self._query.client.client.actions.s(action).filter("host.name==\"{}\"".format(self.name))
 		for parameter, value in parameters.items():
 			query = getattr(query, parameter)(value)
 		return query.post()
@@ -136,11 +148,11 @@ class Service(Icinga2Object):
 	def host(self):
 		"""Get host to wich this service beongs to."""
 		hostname = self["attrs"]["host_name"]
-		return Host(self._query.client.objects.hosts.s(hostname), hostname, cache_time=self._expiry)
+		return self._query.client.objects.hosts.s(hostname).get(cache_time=self._expiry)
 
 	def action(self, action, **parameters):
 		"""Process action for this service."""
-		query = self._query.client.actions.s(action)
+		query = self._query.client.client.actions.s(action)
 		for parameter, value in parameters.items():
 			query = getattr(query, parameter)(value)
 		return query.post(service=self.name)

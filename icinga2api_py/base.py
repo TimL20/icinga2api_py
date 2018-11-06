@@ -32,7 +32,8 @@ def parseAttrs(attrs):
 class Client(API):
 	"""Icinga2 API client for not-streaming content."""
 	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs, response_parser=Response)
+		kwargs["response_parser"] = Response
+		super().__init__(*args, **kwargs)
 
 	def add_body_parameters(self, **parameters):
 		for parameter, value in parameters.items():
@@ -43,7 +44,8 @@ class Client(API):
 class StreamClient(Client):
 	"""Icinga2 API client for streamed responses."""
 	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs, response_parser=StreamResponse)
+		kwargs["response_parser"] = StreamResponse
+		super().__init__(*args, **kwargs)
 		self.Request = StreamClient.StreamRequest
 
 	class StreamRequest(API.Request):
