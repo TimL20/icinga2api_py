@@ -32,7 +32,8 @@ def parseAttrs(attrs):
 class Client(API):
 	"""Icinga2 API client for not-streaming content."""
 	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs, response_parser=Response)
+		kwargs["response_parser"] = Response
+		super().__init__(*args, **kwargs)
 
 	def add_body_parameters(self, **parameters):
 		for parameter, value in parameters.items():
@@ -43,7 +44,8 @@ class Client(API):
 class StreamClient(Client):
 	"""Icinga2 API client for streamed responses."""
 	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs, response_parser=StreamResponse)
+		kwargs["response_parser"] = StreamResponse
+		super().__init__(*args, **kwargs)
 		self.Request = StreamClient.StreamRequest
 
 	class StreamRequest(API.Request):
@@ -251,7 +253,8 @@ class Icinga2Objects(Response):
 
 	@property
 	def one(self):
-		if len(self) != 1:
+		# Check object count if loaded
+		if self._response is not None and len(self) != 1:
 			raise NotExactlyOne("Recuired exactly one object, found {}".format(len(self)))
 		return Icinga2Object(self._query, self[0]["name"], self.response)
 

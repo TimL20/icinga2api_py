@@ -1,7 +1,8 @@
-### Usage of underlying API Client
-There are three API Clients in this package. One is the most basic thing in this package. The API Clients are just
-kind of a wrapper around requests, and return data as they get it from the Icinga2 API (via requests). That why, this
-client is able to do everything the API you could do manually.
+### Usage of basic API Client
+There are three API Clients in this package. API Client (api.API) is just a kind of a wrapper around requests, and 
+returns data as received from the Icinga2 API (via requests). That why, this client is able to do everything you can do 
+with standard python and requests (and that should be almost everything the API is able to do).
+An exception are streams, wich are not supported by this basic API client.
 
 ```
 from icinga2api_py import API
@@ -15,7 +16,7 @@ client.actions.s("reschedule-check").filter("service.name==\"ping4\" && host.nam
 
 ### Usage of proper API Client(s)
 Requests are exactly the same as with the basic API Client, but the responses are parsed. The returned objects are 
-iterable usually sequences.
+iterable sequences.
 
 ```
 from icinga2api_py import Client
