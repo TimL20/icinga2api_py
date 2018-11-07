@@ -1,10 +1,12 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
-from icinga2api_py import Client
 from icinga2api_py import Icinga2
 
 
 def get_pid(icinga):
     return icinga.status.IcingaApplication.get().one["status"]["icingaapplication"]["app"]["pid"]
+
 
 def get_localhost(icinga):
     return icinga.objects.hosts.localhost.get()

@@ -69,7 +69,10 @@ class Result(collections.abc.Mapping):
 		self._data = res
 
 	def __getitem__(self, item):
-		return self._data[item]
+		ret = self._data
+		for item in parseAttrs(item):
+			ret = ret[item]
+		return ret
 
 	def __getattr__(self, item):
 		return self[item]
@@ -330,6 +333,12 @@ class Icinga2Object(Icinga2Objects, collections.abc.Mapping):
 		if isinstance(item, int):
 			return self.get_object(item)
 		return self.get_object()[item]
+
+	def __getattr__(self, attr):
+		if attr in self.results[0]:
+			return self.results[0][attr]
+		else:
+			return super().__getattr__(attr)
 
 	def __len__(self):
 		return len(self.get_object())
