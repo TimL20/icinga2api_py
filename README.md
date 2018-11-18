@@ -1,7 +1,7 @@
 icinga2api_py
 ===============
 
-Icinga2 API routines in/for python, general usage.
+Simple access to the Icinga2 API on top of Python [requests](https://github.com/requests/requests).
 
 ## What you can do with it
 - Connect to the API with 
@@ -11,13 +11,14 @@ Icinga2 API routines in/for python, general usage.
 - Actions (acknowledge, ...), also for multiple objects at once
 - If you don't use the OOP interface, then you should be able to do everything except streams
 
-## What you can't do with it
-- Use it without any knowledge of the Icinga2 API or the documentation for this package
- (but the documentation is not ready to read yet...)
-- Any streams (EventStreams) are currently not supported
-- ConfigurationManagement and console might work, or might not work, they are not tested yet
- 
-## Usage examples for OOP interface
+## Notice, that ...
+- ... knowledge of the Icinga2 API is recommended
+- ... the documentation is not ready. Actually it's more a collection of working examples than a documentation...
+- ... any streams (EventStreams) are currently not supported
+- ... ConfigurationManagement is not available via object oriented interface
+- ... A few things (Console feature, ConfigurationManagement and more) are not tested
+
+## Usage examples for the object oriented interface
 
 ```
 from icinga2api_py import Icinga2
@@ -26,9 +27,11 @@ from icinga2api_py import Icinga2
 # Get an instance representing the Icinga2 node, connected this node via API
 icinga = Icinga2("icingahost", ("username", "passwd"))
 
-localhost = icinga.objects.hosts.localhost.get()  # query the host localhost
-if not localhost["attrs"]["state"]:  # if state is not up
-    print("Icinga seems to think, that it could run, even if it has no host to run on...")
+# Get a host object representing localhost
+localhost = icinga.objects.hosts.localhost.get()
+if not localhost["attrs.state"]:  # if state is not up
+    print("The host 'localhost' seems to be down.")
+
 print("The host localhost has the following services:")
 servicenames = [service["name"] for service in localhost.services]
 print(", ".join(servicenames))

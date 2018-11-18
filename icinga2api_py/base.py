@@ -69,7 +69,10 @@ class Result(collections.abc.Mapping):
 		self._data = res
 
 	def __getitem__(self, item):
-		return self._data[item]
+		ret = self._data
+		for item in parseAttrs(item):
+			ret = ret[item]
+		return ret
 
 	def __getattr__(self, item):
 		return self[item]
@@ -115,7 +118,8 @@ class Response(collections.abc.Sequence):
 		except json.decoder.JSONDecodeError:
 			raise Icinga2ApiError("Failed to parse JSON response.")
 		except KeyError:
-			pass  # No "results" in _data
+			# No "results" in response
+			self._results = tuple()
 
 	@property
 	def results(self):
@@ -128,8 +132,7 @@ class Response(collections.abc.Sequence):
 
 	@property
 	def loaded(self):
-		"""If the results have ever been loaded. That it returns True does not mean, that the results aren't loaded the
-		next time they are requested."""
+		"""If the results have ever been loaded."""
 		return self._results is not None
 
 	def get_object(self, index):
@@ -251,6 +254,11 @@ class Icinga2Objects(Response):
 		self._load()
 		self._expires = int(time.time()) + self._expiry
 
+	def invalidate(self):
+		"""To point out, that the cached response is propably not valid anymore.
+		Currently, this method will set expired of the cache mechanism to the past."""
+		self._expires = 0
+
 	@property
 	def one(self):
 		# Check object count if loaded
@@ -279,21 +287,29 @@ class Icinga2Objects(Response):
 			query = query.s(parameter)(value)
 		return query
 
-	def modify(self, attrs):
-		"""Modify this/these objects; set the given attributes (dictionary)."""
+	def modify(self, attrs, no_invalidate=False):
+		"""Modify this/these objects; set the given attributes (dictionary).
+		Optionally avoid calling invalidate() with no_invalidate=True."""
 		mquery = copy.copy(self._query)  # Shallow copy of this query Request
 		mquery.method = "POST"
 		mquery.body = dict(self._query.body)  # copy original body (filter and such things)
 		mquery.body["attrs"] = attrs  # Set new attributes
-		return mquery()  # Execute modify query
+		ret = mquery()  # Execute modify query
+		if not no_invalidate:
+			self.invalidate()  # Reset cache to avoid caching something wrong
+		return ret  # Return query result
 
-	def delete(self, cascade=False):
-		"""Delete this/these objects, cascade that if set to True."""
+	def delete(self, cascade=False, no_invalidate=False):
+		"""Delete this/these objects, cascade that if set to True.
+		Optionally avoid calling invalidate() with no_invalidate=True."""
 		mquery = copy.copy(self._query)  # Shallow copy of this query Request
 		mquery.method = "DELETE"
 		mquery.body = dict(self._query.body)  # copy original body (filter and such things)
 		cascade = 1 if cascade else 0
-		return mquery(cascade=cascade)  # Execute delete query
+		ret = mquery(cascade=cascade)  # Execute delete query
+		if not no_invalidate:
+			self.invalidate()  # Reset cache
+		return ret  # Return query result
 
 
 class Icinga2Object(Icinga2Objects, collections.abc.Mapping):
@@ -330,6 +346,12 @@ class Icinga2Object(Icinga2Objects, collections.abc.Mapping):
 		if isinstance(item, int):
 			return self.get_object(item)
 		return self.get_object()[item]
+
+	def __getattr__(self, attr):
+		if attr in self.results[0]:
+			return self.results[0][attr]
+		else:
+			return super().__getattr__(attr)
 
 	def __len__(self):
 		return len(self.get_object())
