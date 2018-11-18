@@ -7,7 +7,7 @@ So everything stays the same, but you get parsed responses instead of the respon
 Response, as returned from any request with the client, is a sequence customized for sucessfull responses of the
 Icinga2 API. You can get the original requests response with the `response` property, but you can also directly get the
 returned results of this response (`results` property), wich are already decoded.
-Any response object acts like a presentation of these results. You can iterate through results, get a particular result
+Any Response object acts like a presentation of these results. You can iterate through results, get a particular result,
 and so on, everything just with the response:
 ```
 from icinga2api_py import Client
@@ -47,6 +47,14 @@ if hosts.min_one("attrs.state", 1):
     print("At least one host is down")
 ```
 
+As shown in the last example, you can specify the Icinga2 attributes with the dot-syntax:
+```
+localhost = client.objects.hosts.localhost.get()[0]
+
+# Get value of attribute output in dictionary last_check_result in dictionary attrs
+localhost["attrs.last_check_result.output"]  # Output of last check result
+```
+
 ### Everything else
 Response has a `__getattr()__` method, redirecting every unknown attribute to it's self.response property. This is
 usefull on errors ore similar:
@@ -56,5 +64,5 @@ hosts.json()  # Returns the bare JSON parsed request, usefull on errors
 hosts.status_code  # HTTP response status code
 ```
 
-These are just some examples. You usually won't - at least I won't - use these things as described above. But they are
-fine, and the best thing is: they are also available when using the OOP interface (because of inheritance).
+These are just some examples. You usually don't want to use these things as described above. But they are
+fine, and: they are also available when using the OOP interface (because of inheritance).

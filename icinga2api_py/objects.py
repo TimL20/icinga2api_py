@@ -103,7 +103,7 @@ class Icinga2(Client):
 			return Icinga2Object(query, **initargs)
 		return Icinga2Objects(query, **initargs)
 
-	def create_object(self, type, name, templates, attrs, ignore_on_error=False):
+	def create_object(self, type, name, attrs, templates=tuple(), ignore_on_error=False):
 		"""Create an Icinga2 object through the API."""
 		type = type.lower()
 		type = type if type[-1:] == "s" else type + "s"
