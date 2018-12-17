@@ -4,12 +4,12 @@ icinga2api_py
 Simple access to the Icinga2 API on top of Python [requests](https://github.com/requests/requests).
 
 ## What you can do with it
-- Connect to the API with 
+- Connect to an Icinga2 instance via API 
 - Create objects
-- Query objects, cached and with auto-(re)load
-- Modify and delete objects of all types, also multiple objects at once
+- Query objects: cached, with load on demand and auto-reload
+- Modify and delete objects, also multiple objects at once
 - Actions (acknowledge, ...), also for multiple objects at once
-- If you don't use the OOP interface, then you should be able to do everything except streams
+- Everything except streams is somehow possible
 
 ## Notice, that ...
 - ... knowledge of the Icinga2 API is recommended
@@ -22,13 +22,11 @@ Simple access to the Icinga2 API on top of Python [requests](https://github.com/
 
 ```
 from icinga2api_py import Icinga2
-# Connect client to Icinga2 API
 
-# Get an instance representing the Icinga2 node, connected this node via API
 icinga = Icinga2("icingahost", ("username", "passwd"))
 
-# Get a host object representing localhost
 localhost = icinga.objects.hosts.localhost.get()
+
 if not localhost["attrs.state"]:  # if state is not up
     print("The host 'localhost' seems to be down.")
 
@@ -36,4 +34,13 @@ print("The host localhost has the following services:")
 servicenames = [service["name"] for service in localhost.services]
 print(", ".join(servicenames))
 ```
- 
+
+## How to install
+ Clone this repository and install via setup.py, for example like this:
+ ```
+ $ git clone https://github.com/TimL20/icinga2api_py.git
+ $ cd icinga2api_py
+ $ python setup.py install
+ ```
+
+The branch dev tends to have more feature and better usability, but it is even more buggy than the master branch.

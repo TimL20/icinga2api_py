@@ -31,28 +31,15 @@ def parseAttrs(attrs):
 
 class Client(API):
 	"""Icinga2 API client for not-streaming content."""
-	def __init__(self, *args, **kwargs):
-		kwargs["response_parser"] = Response
-		super().__init__(*args, **kwargs)
-
-	def add_body_parameters(self, **parameters):
-		for parameter, value in parameters.items():
-			self.s(parameter)(value)
-		return self
+	def __init__(self, host, auth=None, port=5665, uri_prefix='/v1', **sessionparams):
+		super().__init__(host, auth, port, uri_prefix, response_parser=Response, **sessionparams)
 
 
 class StreamClient(Client):
 	"""Icinga2 API client for streamed responses."""
-	def __init__(self, *args, **kwargs):
-		kwargs["response_parser"] = StreamResponse
-		super().__init__(*args, **kwargs)
-		self.Request = StreamClient.StreamRequest
-
-	class StreamRequest(API.Request):
-		"""API Request with stream set to true for the request."""
-		def __init__(self, *args, **kwargs):
-			super().__init__(*args, **kwargs)
-			self.request_args["stream"] = True
+	def __init__(self, host, auth=None, port=5665, uri_prefix='/v1', **sessionparams):
+		super().__init__(host, auth, port, uri_prefix, response_parser=StreamResponse, **sessionparams)
+		self.session.stream = True
 
 	@staticmethod
 	def create_from_client(client):

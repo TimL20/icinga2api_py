@@ -71,18 +71,17 @@ class Query:
 class Icinga2(Client):
 	"""Central class of this OOP interface for the Icinga2 API.
 	An object of this class is needed for a lot of things of the OOP interface."""
-	def __init__(self, *args, **kwargs):
-		self.cache_time = kwargs["cache_time"] if "cache_time" in kwargs else 60
-		if "cache_time" in kwargs:
-			del kwargs["cache_time"]
-		super().__init__(*args, **kwargs)
+	def __init__(self, host, auth=None, port=5665, uri_prefix='/v1', cache_time=60, **sessionparams):
+		self.cache_time = cache_time
+		self.sessionparams = sessionparams  # It's kind of a workaround to create a "real" Client
+		super().__init__(host, auth, port, uri_prefix, **sessionparams)
 		self.Request = Query
 
 	@property
 	def client(self):
 		"""Get non-OOP interface client."""
 		# Create client with None for all base_url things
-		client = Client(None, self.auth, self.cert, None, None, self.verify)
+		client = Client(None, self.auth, None, None, **self.sessionparams)
 		client.base_url = self.base_url
 		return client
 
