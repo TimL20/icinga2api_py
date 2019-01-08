@@ -2,49 +2,50 @@
 There is a very basic API client in icinga2api_py.api named API, which is a usefull wrapper around requests (that's the
 only dependency). This client is there to make building a request for the Icinga2 API easy. By default, data is
 returned as from requests, but we will see more about that later.
+The Client uses and inherits from requests.Session.
 
 ## Construct an api.API client
 
 ```
 from icinga2api_py import API
-apiclient = API(host, auth=tuple(), cert_auth=tuple(), port=5665, uri_prefix='/v1', verify=False, response_parser=None)
+apiclient = API(host, auth=tuple(), port=5665, uri_prefix='/v1', response_parser=None, **sessionparams)
 ```
 
-- host is the host to connect to
+- host is the (Icinga2 API) host to connect to
 - auth is the HTTP basic authentication tuple (username, password), use either this or cert_auth for authentication
-- cert_auth is a tuple of a (client) certificate and key, use this for certificate authentication
 - port is the TCP port to connect to
 - uri_prefix is URL prefix, wich is currently (Icinga 2.9.1) always /v1
-- verify is a path to a CA (/bundle) with truseted CA(s) (for self signed certificates)
- Set that to false (default) to disable verification, but that will cause warnings.
-- response_parser is a callable to parse any response. That is discussed later. None (default) will not use a parser.
+- response_parser is a callable to parse any response. That is discussed later. With None (default) no parser is used.
+- Every other keyword arguments passed are set as requests.Session attributes, these are (among others):
+  - proxies (Proxy dictionary)
+  - verify (SSL Verification, False to disable verification)
+  - cert (SSL client authentication, cert file or cert&key tuple)
 
 ## Building a Request (/Query) to a URL
 Building a request for the API is usually really easy with this client. Just look at these examples:
 ```
-<apiclient>.status.IcingaApplication.get()
-<apiclient>.objects.hosts.localhost.get()
+client.status.IcingaApplication.get()
+client.objects.hosts.localhost.get()
 
-<apiclient>.objects.services.s("localhost!test1").get()
+client.objects.services.s("localhost!test1").get()
 ```
 
-These three are the simplest type of request. What they do is to just make build (and fire) a request to a URL with a
+These three are the simplest type of request. What they do is to just make, build (and fire) a request to a URL with a
 HTTP method. Let's look closer at this:
 ```
-<apiclient>    .     status      .     IcingaApplication    .    get          ()
+<apiclient object>    .     status      .     IcingaApplication    .    get          ()
 ```
 It just means:
-- Use this API client (that's obvious) and it's given base URL
+- Use this initialized API client (that's obvious) and it's given base URL
 - Add /status to the known base URL
-- Add /IcingaApplication URL
+- Add /IcingaApplication to the URL
 - Override HTTP method with GET
 - Fire the request
 
 So that will just build the URL &lt;baseurl&gt;/status/IcingaApplication, sets the HTTP method to get and fires the
 request via requests. If you like to look closer, leave out the brackets after the HTTP method, that will give you a
-`icinga2api_py.API.Request` with the fields `url` (used URL as string), `body` (JSON body), `method` (HTTP method
-as string) and `request_args` (other request arguments) - objects of this class are sometimes used from the other
-classes as a query. The API.Request objects are callable, and will fire the requests on call.
+`icinga2api_py.API.Request` with the fields `request` (requests.Request) and  `headers` (headers to be set). The
+API.Request objects are callable, and will fire the requests on call.
 
 As you can see, you usually just build a URL with converting the / in the URL to a dot here. But there are sometimes
 cases, when you can't do that. For example, if you want to have the name of an object in the URL, but this object has a
@@ -60,11 +61,10 @@ Adding something to the JSON body is very easy:
 
 Just call a method between the URL building and the HTTP method. The name of this method becomes the dictionary key in
 the body, the method argument gets the value. If you give more than one argument, the value automatically gets a list
-of all arguments. Unlike with URL building, order is not important here. And again, if you messed something up, leave
-the brackets after the HTTP method away and look at the API.Request object.
+of all arguments. Unlike with URL building, order is not important here.
 
 ## URL parameters
-There is a possibility, to add URL parameters (aka GET parameters):
+There is a possibility to add URL parameters (aka GET parameters):
 ```
 <apiclient>.objects.hosts.get(host="localhost")
 ```

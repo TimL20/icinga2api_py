@@ -35,7 +35,7 @@ Response objects also have some usefull methods.
 # How much hosts does our monitoring know?
 print("Our monitoring knows currently {} host(s)".format(len(hosts)))
 
-# Print all host names (= get all name values)
+# Print all host names (= get all "name" values)
 print(", ".join(hosts.values("name")))
 
 # Are all hosts down? (= have all attrs.state attributes the value 1)
