@@ -16,7 +16,7 @@ from .base import Icinga2Object
 TYPES_AND_NAMES = {
 	"objects": (1, 2),  # /objects/<type>/<name>
 	"templates": (0, 2),  # /templates/<temptype>/<name>
-	"variables": (0, 1)  # /variables/<name>
+	"variables": (0, 1),  # /variables/<name>
 }
 
 
@@ -52,7 +52,7 @@ class Query:
 			# Information about type and name in URL is known
 			type_ = url[TYPES_AND_NAMES[basetype][0]]
 			namepos = TYPES_AND_NAMES[basetype][1]
-			name = url[namepos] if len(url) > namepos else None
+			name = url[namepos] if len(url) > namepos > 0 else None
 		else:
 			# Default type guessing
 			type_ = basetype
@@ -120,15 +120,21 @@ class Icinga2(Client):
 
 class Host(Icinga2Object):
 	"""Representation of a Icinga2 Host object."""
+	def __getattr__(self, item):
+		print("Host __getattr__")
+
 	@property
 	def services(self):
 		"""Get services of this host."""
-		query = self._query.client.client.objects.services.filter("host.name==\"{}\"".format(self.name)).get
-		return Services(query, cache_time=self._expiry)
+		try:
+			query = self._query.api.client.objects.services.filter("host.name==\"{}\"".format(self.name)).get
+			return Services(query, cache_time=self._expiry)
+		except AttributeError:
+			logging.getLogger(__name__).exception("Exception constructing services from a Host object.")
 
 	def action(self, action, **parameters):
 		"""Process action for this host."""
-		query = self._query.client.client.actions.s(action).filter("host.name==\"{}\"".format(self.name))
+		query = self._query.api.client.actions.s(action).filter("host.name==\"{}\"".format(self.name))
 		for parameter, value in parameters.items():
 			query = getattr(query, parameter)(value)
 		return query.post()
@@ -137,21 +143,27 @@ class Host(Icinga2Object):
 class Hosts(Icinga2Objects):
 	@property
 	def one(self):
-		if len(self) != 1:
-			raise NotExactlyOne("Exactly one object required, found {}".format(len(self)))
-		return Host(self._query, self[0]["name"], self.response)
+		try:
+			if len(self) != 1:
+				raise NotExactlyOne("Exactly one object required, found {}".format(len(self)))
+			return Host(self._query, self[0]["name"], self.response)
+		except AttributeError:
+			logging.getLogger(__name__).exception("Exception constructing one Host from Hosts.")
 
 
 class Service(Icinga2Object):
 	@property
 	def host(self):
 		"""Get host to wich this service beongs to."""
-		hostname = self["attrs"]["host_name"]
-		return self._query.client.objects.hosts.s(hostname).get(cache_time=self._expiry)
+		try:
+			hostname = self["attrs"]["host_name"]
+			return self._query.api.objects.hosts.s(hostname).get(cache_time=self._expiry)
+		except AttributeError:
+			logging.getLogger(__name__).exception("Exception constructing Host object from Service object.")
 
 	def action(self, action, **parameters):
 		"""Process action for this service."""
-		query = self._query.client.client.actions.s(action)
+		query = self._query.api.client.actions.s(action)
 		for parameter, value in parameters.items():
 			query = getattr(query, parameter)(value)
 		return query.post(service=self.name)
@@ -160,9 +172,12 @@ class Service(Icinga2Object):
 class Services(Icinga2Objects):
 	@property
 	def one(self):
-		if len(self) != 1:
-			raise NotExactlyOne("Exactly one object required, found {}".format(len(self)))
-		return Service(self._query, self[0]["name"], self.response)
+		try:
+			if len(self) != 1:
+				raise NotExactlyOne("Exactly one object required, found {}".format(len(self)))
+			return Service(self._query, self[0]["name"], self.response)
+		except AttributeError:
+			logging.getLogger(__name__).exception("Exception constructing one Service from Services.")
 
 
 class Templates(Icinga2Objects):
