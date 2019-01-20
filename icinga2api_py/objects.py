@@ -132,13 +132,6 @@ class Host(Icinga2Object):
 		except AttributeError:
 			logging.getLogger(__name__).exception("Exception constructing services from a Host object.")
 
-	def action(self, action, **parameters):
-		"""Process action for this host."""
-		query = self._query.api.client.actions.s(action).filter("host.name==\"{}\"".format(self.name))
-		for parameter, value in parameters.items():
-			query = getattr(query, parameter)(value)
-		return query.post()
-
 
 class Hosts(Icinga2Objects):
 	@property
@@ -160,13 +153,6 @@ class Service(Icinga2Object):
 			return self._query.api.objects.hosts.s(hostname).get(cache_time=self._expiry)
 		except AttributeError:
 			logging.getLogger(__name__).exception("Exception constructing Host object from Service object.")
-
-	def action(self, action, **parameters):
-		"""Process action for this service."""
-		query = self._query.api.client.actions.s(action)
-		for parameter, value in parameters.items():
-			query = getattr(query, parameter)(value)
-		return query.post(service=self.name)
 
 
 class Services(Icinga2Objects):

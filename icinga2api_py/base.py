@@ -159,7 +159,11 @@ class Response(collections.abc.Sequence):
 		ret = []
 		for r in self.results:
 			for key in attr:
-				r = r[key]
+				try:
+					r = r[key]
+				except TypeError:
+					r = None
+					break
 			ret.append(r)
 		return ret
 
@@ -268,19 +272,25 @@ class Icinga2Objects(Response):
 		names = [obj["name"] for obj in self]
 		logging.getLogger(__name__).debug("Processing action {} for {} objects of type {}".format(action, len(names), type))
 		fstring = "\" or {}.name==\"".format(type)
-		fstring = "{}.name==\"{}".format(type, fstring.join(names))
-		query = self._query.client.actions.s(action).filter(fstring)
+		fstring = "{}.name==\"{}\"".format(type, fstring.join(names))
+		# self._query.api = Icinga2 instance, property client for base.Client instance
+		query = self._query.api.client.actions.s(action).type(type.title()).filter(fstring)
 		for parameter, value in parameters.items():
 			query = query.s(parameter)(value)
-		return query
+		return query.post()
 
 	def modify(self, attrs, no_invalidate=False):
 		"""Modify this/these objects; set the given attributes (dictionary).
 		Optionally avoid calling invalidate() with no_invalidate=True."""
-		mquery = copy.copy(self._query)  # Shallow copy of this query Request
-		mquery.method = "POST"
-		mquery.body = dict(self._query.body)  # copy original body (filter and such things)
-		mquery.body["attrs"] = attrs  # Set new attributes
+		# TODO This is not an elegant way to do this, there may be a better one?!
+		# First copy some things that may be overwritten
+		mquery = copy.copy(self._query)
+		mquery.request = copy.copy(mquery.request)
+		mquery.request.headers = copy.copy(mquery.request.headers)
+		mquery.request.headers['X-HTTP-Method-Override'] = "POST"
+		body = dict(self._query.request.json)  # copy original body (filter and such things)
+		body["attrs"] = attrs  # Set new attributes
+		mquery.request.json = body
 		ret = mquery()  # Execute modify query
 		if not no_invalidate:
 			self.invalidate()  # Reset cache to avoid caching something wrong
@@ -289,9 +299,13 @@ class Icinga2Objects(Response):
 	def delete(self, cascade=False, no_invalidate=False):
 		"""Delete this/these objects, cascade that if set to True.
 		Optionally avoid calling invalidate() with no_invalidate=True."""
-		mquery = copy.copy(self._query)  # Shallow copy of this query Request
-		mquery.method = "DELETE"
-		mquery.body = dict(self._query.body)  # copy original body (filter and such things)
+		# TODO This is not an elegant way to do this, there may be a better one?!
+		# First copy some things
+		mquery = copy.copy(self._query)
+		mquery.request.headers = copy.copy(mquery.request.headers)
+		mquery.request.headers['X-HTTP-Method-Override'] = "DELETE"
+		mquery.request.json = copy.copy(mquery.request.json)
+		mquery.request.json = dict(self._query.request.json)  # copy original body (filter and such things)
 		cascade = 1 if cascade else 0
 		ret = mquery(cascade=cascade)  # Execute delete query
 		if not no_invalidate:
@@ -322,7 +336,7 @@ class Icinga2Object(Icinga2Objects, collections.abc.Mapping):
 		"""Loads the object, raises an exception if not exactly one object was returned from the query."""
 		ret = super()._load()
 		if len(self._results) != 1:
-			raise NotExactlyOne("Required exactly one object, found %d", len(self._results))
+			raise NotExactlyOne("Required exactly one object, found %d" % len(self._results))
 		return ret
 
 	def get_object(self, index=0):
@@ -344,8 +358,12 @@ class Icinga2Object(Icinga2Objects, collections.abc.Mapping):
 		return len(self.get_object())
 
 	def __iter__(self):
-		"""Iterate over the result mapping object."""
-		return iter(self.get_object())
+		"""Returns a generator, generating just this one and only object.
+		Otherwise we may run into trouble because of the relationship to Icinga2Objects."""
+		def generator():
+			yield self
+
+		return generator()
 
 	def __str__(self):
 		return str(self.get_object())
