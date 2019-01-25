@@ -5,8 +5,10 @@ This client is really dump and has not much ideas about how the Icinga2 API work
 What it does is to set up a requests.Session (which it extends), build URL and body, and make the request in the end.
 By default the response is a requests.Response.
 """
-import logging
+
 import requests
+
+from .models import APIRequest
 
 # Accepted HTTP methods
 HTTP_METHODS = ('GET', 'POST', 'PUT', 'DELETE')
@@ -26,7 +28,9 @@ class API(requests.Session):
 		if auth is not None:
 			self.auth = auth
 
+		# These two exist to simplify extending this class
 		self.response_parser = response_parser
+		self.request_class = APIRequest
 
 	def __getattr__(self, item):
 		return self.s(item)
@@ -57,7 +61,7 @@ class API(requests.Session):
 				return self._rotate_attr(item)
 			self._rotate_attr()
 			url = self.api_client.base_url + "/".join(self._builder_list)
-			return self.api_client.Request(self.api_client, url, self._body, item.upper())
+			return self.api_client.request_class(self.api_client, url, self._body, item.upper())
 
 		def __call__(self, *args, **kwargs):
 			args = args[0] if len(args) == 1 else args
@@ -67,20 +71,3 @@ class API(requests.Session):
 				self._body[self._lastattr] = args
 			self._lastattr = None
 			return self
-
-	class Request:
-		def __init__(self, client, url, body, method):
-			self.api = client
-
-			# Prepare request
-			headers = {'Accept': 'application/json', 'X-HTTP-Method-Override': method.upper()}
-			self.request = requests.Request('POST', url, headers=headers, json=body)
-
-		def __call__(self, *args, **params):
-			self.request.params = params or {}
-			logging.getLogger(__name__).debug("API request to %s with %s", self.request.url, self.request.json)
-			request = self.api.prepare_request(self.request)
-			# Take environment variables into account
-			settings = self.api.merge_environment_settings(request.url, None, None, None, None)
-			r = self.api.send(request, **settings)
-			return r if not self.api.response_parser else self.api.response_parser(r)
