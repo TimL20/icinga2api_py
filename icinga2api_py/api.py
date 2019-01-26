@@ -8,7 +8,7 @@ By default the response is a requests.Response.
 
 import requests
 
-from .models import APIRequest
+from .models import APIRequest, APIResponse
 
 # Accepted HTTP methods
 HTTP_METHODS = ('GET', 'POST', 'PUT', 'DELETE')
@@ -16,7 +16,7 @@ HTTP_METHODS = ('GET', 'POST', 'PUT', 'DELETE')
 
 class API(requests.Session):
 	"""This class is not documented, because the examples show much better how it works than everything else could."""
-	def __init__(self, host, auth=None, port=5665, uri_prefix='/v1', response_parser=None, **sessionparams):
+	def __init__(self, host, auth=None, port=5665, uri_prefix='/v1', **sessionparams):
 		super().__init__()
 		self.base_url = "https://{}:{}{}/".format(host, port, uri_prefix)
 
@@ -29,7 +29,6 @@ class API(requests.Session):
 			self.auth = auth
 
 		# These two exist to simplify extending this class
-		self.response_parser = response_parser
 		self.request_class = APIRequest
 
 	def __getattr__(self, item):
@@ -71,3 +70,8 @@ class API(requests.Session):
 				self._body[self._lastattr] = args
 			self._lastattr = None
 			return self
+
+	@staticmethod
+	def create_response(response):
+		"""Create a custom response from a requests.Response."""
+		return APIResponse.from_response(response)

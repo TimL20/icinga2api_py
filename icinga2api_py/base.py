@@ -7,7 +7,6 @@ from .api import API
 
 import json
 import collections.abc
-import requests.exceptions
 import time
 import logging
 import copy
@@ -19,14 +18,6 @@ class Icinga2ApiError(Exception):
 
 class NotExactlyOne(Exception):
 	"""Raised when an operation requiring exactly one object is executed, but there is not exactly one object."""
-
-
-def parseAttrs(attrs):
-	"""Split attrs on dots, return attrs if it's not a string."""
-	if isinstance(attrs, str):
-		return attrs.split(".")
-	else:
-		return attrs
 
 
 class Client(API):
@@ -49,31 +40,6 @@ class StreamClient(Client):
 		res.response_parser = StreamResponse
 
 
-class Result(collections.abc.Mapping):
-	"""Icinga2 API request result (one from results).
-	Basically just provides (read-only) access to the data of a dictionary."""
-	def __init__(self, res):
-		self._data = res
-
-	def __getitem__(self, item):
-		ret = self._data
-		for item in parseAttrs(item):
-			ret = ret[item]
-		return ret
-
-	def __getattr__(self, item):
-		return self[item]
-
-	def __len__(self):
-		return len(self._data)
-
-	def __iter__(self):
-		return iter(self._data)
-
-	def __str__(self):
-		return str(self._data)
-
-
 class StreamResponse:
 	"""Access to response(s) of a streamed Icinga2 API response.
 	Streamed responses are separated by new lines according to the Icinga2 API documentation."""
@@ -84,122 +50,6 @@ class StreamResponse:
 		"""Iterate over responses, wich are returned as Result objects."""
 		for line in self._response.iter_lines():
 			yield Result(json.loads(line))
-
-
-class Response(collections.abc.Sequence):
-	"""Access to an Icinga2 API Response"""
-	def __init__(self, response):
-		self._response = response
-		self._results = None
-
-	@property
-	def response(self):
-		"""The received response, a requests.Response object."""
-		return self._response
-
-	def _load(self):
-		"""Parses response to results and store results. It's a separate method to make overriding easy."""
-		try:
-			data = self.response.json()  # Works also with Response responses because of __getattr__
-			self._results = tuple(data["results"])
-		except json.decoder.JSONDecodeError:
-			raise Icinga2ApiError("Failed to parse JSON response.")
-		except KeyError:
-			# No "results" in response
-			self._results = tuple()
-
-	@property
-	def results(self):
-		"""Returns the parsed results of response, loads that (_load) if needed."""
-		if self._results is None:
-			self._load()
-		if self._results is None:
-			raise Icinga2ApiError("Failed to load results.")
-		return self._results
-
-	@property
-	def loaded(self):
-		"""If the results have ever been loaded."""
-		return self._results is not None
-
-	def get_object(self, index):
-		"""An object representing one result (at the given index)."""
-		return Result(self.results[index])
-
-	def __getattr__(self, attr):
-		"""Try to get a not existing attribute from the response object instead."""
-		return getattr(self.response, attr)
-
-	def __getitem__(self, index):
-		"""One result at the given index."""
-		return self.get_object(index)
-
-	def __len__(self):
-		"""The length of the result sequence."""
-		return len(self.results)
-
-	def __bool__(self):
-		"""True if results where loaded AND there is minimum one result AND there occured no error during this check."""
-		try:
-			return bool(self.results)
-		except (TypeError, KeyError, requests.exceptions.RequestException):
-			return False
-
-	def __str__(self):
-		res = "no" if not bool(self) else len(self)
-		return "<Response [{}], {} results>".format(self.response.status_code, res)
-
-	###################################################################################################################
-	# Enhanced access to result data ##################################################################################
-	###################################################################################################################
-
-	def values(self, attr):
-		"""Returns all values of given attribute(s) as a list."""
-		attr = parseAttrs(attr)
-		ret = []
-		for r in self.results:
-			for key in attr:
-				try:
-					r = r[key]
-				except TypeError:
-					r = None
-					break
-			ret.append(r)
-		return ret
-
-	def are_all(self, attr, expected):
-		"""Returns True, if all results attributes have the expected value."""
-		attr = parseAttrs(attr)
-		for r in self.results:
-			for key in attr:
-				r = r[key]
-			if r != expected:
-				return False
-		return True
-
-	def min_one(self, attr, expected):
-		"""Return True, if min. one result attribute has the expected value."""
-		attr = parseAttrs(attr)
-		for r in self.results:
-			for key in attr:
-				r = r[key]
-			if r == expected:
-				return True
-		return False
-
-	def min_max(self, attr, expected, min, max):
-		"""Returns True, if the result attribute attr has at least min times and maximally max times the expected value.
-		The method does not necessarily look at all attributes."""
-		attr = parseAttrs(attr)
-		i = 0
-		for r in self.results:
-			for key in attr:
-				r = r[key]
-			if r == expected:
-				i += 1
-				if i > max:
-					return False
-		return i >= min
 
 
 class Icinga2Objects(Response):
