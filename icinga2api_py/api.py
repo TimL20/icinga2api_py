@@ -31,6 +31,15 @@ class API(requests.Session):
 		# This is here to simplify extending the API class and changing its behavior
 		self.request_class = APIRequest
 
+	def clone(self):
+		sessionparams = {}
+		for attr in self.__attrs__:
+			sessionparams[attr] = getattr(self, attr, None)
+		api = API(None, **sessionparams)
+		api.base_url = self.base_url
+		api.request_class = self.request_class
+		return api
+
 	def __getattr__(self, item):
 		return self.s(item)
 

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from .objects import *
+from .api import API
+from .clients import Client, Icinga2
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"
