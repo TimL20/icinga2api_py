@@ -6,6 +6,7 @@ from requests import Request, Response
 
 
 class APIRequest(Request):
+	"""A ready-to-call API request specialised for the Icinga2 API."""
 	def __init__(self, client, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 
@@ -27,7 +28,7 @@ class APIRequest(Request):
 
 	@method_override.setter
 	def method_override(self, method):
-		self.headers['X-HTTP-Method-Override'] = method.upper
+		self.headers['X-HTTP-Method-Override'] = method.upper()
 
 	def prepare(self):
 		"""Construct a requests.PreparedRequest with the API (client) session."""

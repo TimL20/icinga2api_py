@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Small client for easy access to the Icinga2 API. Famous python package requests is needed as a dependency.
+"""Small client for easy access to the Icinga2 API. Famous Python package requests is needed as a dependency.
 
 This client is really dump and has not much ideas about how the Icinga2 API works.
 What it does is to set up a requests.Session (which it extends), build URL and body, and make the request in the end.
-By default the response is a requests.Response.
+By default the response is a models.APIResponse.
 """
 
 import requests
@@ -28,7 +28,7 @@ class API(requests.Session):
 		if auth is not None:
 			self.auth = auth
 
-		# These two exist to simplify extending this class
+		# This is here to simplify extending the API class and changing its behavior
 		self.request_class = APIRequest
 
 	def __getattr__(self, item):
@@ -60,7 +60,7 @@ class API(requests.Session):
 				return self._rotate_attr(item)
 			self._rotate_attr()
 			url = self.api_client.base_url + "/".join(self._builder_list)
-			return self.api_client.request_class(self.api_client, url, self._body, item.upper())
+			return self.api_client.request_class(self.api_client, item.upper(), url, json=self._body)
 
 		def __call__(self, *args, **kwargs):
 			args = args[0] if len(args) == 1 else args
