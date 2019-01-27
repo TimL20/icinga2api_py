@@ -16,7 +16,8 @@ class APIRequest(Request):
 		self.api = client
 
 		# To keep it simple everything is handled with method-override, and the standard method is post
-		self.method_override = self.method
+		if self.method is not None:
+			self.method_override = self.method
 		self.method = "POST"
 		# Set accept header to JSON
 		self.headers['Accept'] = "application/json"
@@ -34,8 +35,10 @@ class APIRequest(Request):
 
 	def clone(self):
 		"""Clone this APIRequest."""
-		args = [getattr(self, attr, None) for attr in self.attrs]
-		return APIRequest(self.api, *args)
+		request = APIRequest(self.api)
+		for attr in self.attrs:
+			setattr(request, attr, getattr(self, attr))
+		return request
 
 	def prepare(self):
 		"""Construct a requests.PreparedRequest with the API (client) session."""
@@ -110,7 +113,7 @@ class APIResponse(Response):
 	def from_response(response):
 		"""Create a response from a response and return it."""
 		res = APIResponse()
-		res.__setstate__(response.__getstate__)
+		res.__setstate__(response.__getstate__())
 		return res
 
 	def json(self, **kwargs):

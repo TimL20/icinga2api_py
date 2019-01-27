@@ -28,7 +28,7 @@ class Client(API):
 		return ResultSet(APIResponse.from_response(response))
 
 
-class Icinga2(Client):
+class Icinga2(API):
 	"""A client for the object oriented part."""
 	def __init__(self, host, auth=None, port=5665, uri_prefix='/v1', caching=float("inf"), **sessionparams):
 		super().__init__(host, auth, port, uri_prefix, **sessionparams)

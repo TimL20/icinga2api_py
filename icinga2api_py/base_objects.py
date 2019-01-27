@@ -18,7 +18,7 @@ class Icinga2Objects(CachedResultSet):
 		"""Return the Icinga2Object at this index."""
 		if not self.loaded:
 			# TODO implement
-			raise NotImplemented("Creating Icinga2Object from not loaded Icinga2Objects not implemented yet")
+			raise NotImplementedError("Creating Icinga2Object from not loaded Icinga2Objects not implemented yet")
 
 		# Get result object
 		res = super().result(index)
@@ -26,7 +26,12 @@ class Icinga2Objects(CachedResultSet):
 		mquery = self._request.clone()
 		fstring = "{}.name==\"{}\"".format(res["type"], res["name"])
 		mquery.json = {"filter": fstring}
-		return Icinga2Object(mquery, self._expiry, data=res)
+		return Icinga2Object(mquery, res["name"], self._expiry, data=res)
+
+	def plain_result(self, index):
+		# More kind of a workaround...
+		# TODO find another solution (?)
+		return super().result(index)
 
 	###################################################################################################################
 	# Actions #########################################################################################################
@@ -91,7 +96,7 @@ class Icinga2Object(Icinga2Objects, Result):
 
 	def result(self, index=0):
 		# TODO add a hint if the request returned more than one result - ignoring is not the best solution...
-		return super(CachedResultSet).result(0)
+		return self.plain_result(0)
 
 	def __getitem__(self, item):
 		if isinstance(item, int):

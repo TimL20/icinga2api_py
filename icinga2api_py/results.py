@@ -173,7 +173,7 @@ class CachedResultSet(ResultsFromRequestMixin, ResultSet):
 
 	@property
 	def loaded(self):
-		return super().loaded and self.expires >= time.time()
+		return super().loaded and self._expires >= time.time()
 
 	def invalidate(self):
 		"""Point out, that the cached response is propably not valid anymore."""

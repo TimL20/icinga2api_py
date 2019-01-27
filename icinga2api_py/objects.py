@@ -8,9 +8,6 @@ from .base_objects import Icinga2Objects, Icinga2Object
 
 class Host(Icinga2Object):
 	"""Representation of a Icinga2 Host object."""
-	def __getattr__(self, item):
-		print("Host __getattr__")
-
 	@property
 	def services(self):
 		"""Get services of this host."""
