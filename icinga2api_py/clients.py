@@ -25,6 +25,7 @@ class Client(API):
 
 	@staticmethod
 	def create_response(response):
+		"""Return ResultSet with APIResponse with given response."""
 		return ResultSet(APIResponse.from_response(response))
 
 

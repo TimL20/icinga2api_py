@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""In this module are objects important for functionality."""
+"""This module provides objects important for functionality."""
 
 import logging
 from requests import Request, Response
@@ -9,21 +9,23 @@ class APIRequest(Request):
 	"""A ready-to-call API request specialised for the Icinga2 API."""
 	attrs = ("method", "url", "headers", "files", "data", "params", "auth", "cookies", "hooks", "json")
 
-	def __init__(self, client, *args, **kwargs):
+	def __init__(self, api, *args, **kwargs):
+		"""Initiate a APIRequest with an API object. *args and **kwargs are passed to request.Request's init."""
 		super().__init__(*args, **kwargs)
 
 		# Client is supposed to be a api.API instance, which inherits from requests.Session
-		self.api = client
+		self.api = api
 
 		# To keep it simple everything is handled with method-override, and the standard method is post
 		if self.method is not None:
 			self.method_override = self.method
 		self.method = "POST"
-		# Set accept header to JSON
+		# Set accept header to JSON, as it's standard.
 		self.headers['Accept'] = "application/json"
 
 	@property
 	def method_override(self):
+		"""The X-HTTP-Method_Override header field value."""
 		try:
 			return self.headers['X-HTTP-Method-Override']
 		except KeyError:
@@ -31,6 +33,7 @@ class APIRequest(Request):
 
 	@method_override.setter
 	def method_override(self, method):
+		"""The X-HTTP-Method_Override header field value."""
 		self.headers['X-HTTP-Method-Override'] = method.upper()
 
 	def clone(self):
@@ -45,8 +48,11 @@ class APIRequest(Request):
 		return self.api.prepare_request(self)
 
 	def __call__(self, *args, **params):
+		"""Call the request object to prepare and immediately send this request.
+		keyword arguments do update params of request. The request is send with use of the API (session) object."""
 		self.params.update(params)  # Update URL parameters optionally
 		logging.getLogger(__name__).debug("API %s request to %s with %s", self.method_override, self.url, self.json)
+		# Prepare the request
 		request = self.prepare()
 		# Take environment variables into account
 		settings = self.api.merge_environment_settings(request.url, None, None, None, None)
@@ -63,6 +69,7 @@ class Query(APIRequest):
 		"templates": (0, 2),  # /templates/<temptype>/<name> -> type=template
 		"variables": (0, 1),  # /variables/<name>
 		"actions": None,  # not an object
+		# TODO add more (?)
 	}
 
 	def clone(self):
@@ -106,13 +113,12 @@ class Query(APIRequest):
 
 class APIResponse(Response):
 	"""Represents a response from the Icinga2 API."""
-	def __init__(self):
-		super().__init__()
 
-	@staticmethod
-	def from_response(response):
+	@classmethod
+	def from_response(cls, response):
 		"""Create a response from a response and return it."""
-		res = APIResponse()
+		res = cls()
+		# Thankfully there's a easy way to do this (although I don't like the choice of names...)
 		res.__setstate__(response.__getstate__())
 		return res
 

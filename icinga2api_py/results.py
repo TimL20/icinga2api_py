@@ -15,7 +15,7 @@ class ResultSet(collections.abc.Sequence):
 
 	@property
 	def response(self):
-		"""Return the original response."""
+		"""The original response from the Icinga2 API."""
 		return self._response
 
 	def load(self):
@@ -30,7 +30,7 @@ class ResultSet(collections.abc.Sequence):
 
 	@property
 	def results(self):
-		"""Returns loaded results, loads them if needed."""
+		"""All results as a sequnce. This is used internally."""
 		if self._results is None:
 			self.load()
 		return self._results
@@ -138,6 +138,7 @@ class ResultsFromRequestMixin:
 
 	@property
 	def loaded(self):
+		"""True if a successful load has taken place."""
 		return self._response is not None and self._results is not None
 
 
@@ -148,6 +149,7 @@ class CachedResultSet(ResultsFromRequestMixin, ResultSet):
 		:param request The request returning the represented results
 		:param caching Cache expiry time in seconds
 		:param response APIResponse for this request if already loaded."""
+		# TODO maybe add data parameter to set results???
 		super().__init__(request)
 		self._response = response
 		self._expiry = caching
@@ -155,12 +157,13 @@ class CachedResultSet(ResultsFromRequestMixin, ResultSet):
 
 	@property
 	def response(self):
+		"""The original response from the Icinga2 API. Reloads on cache expiry."""
 		if self._expires < time.time():
 			self._response = None
 		return super().response
 
 	def load(self):
-		"""Reset cache expiry and (re-)load response."""
+		"""Reset cache expiry time and (re-)load response."""
 		self._expires = time.time() + self._expiry
 		super().load()
 
@@ -173,10 +176,11 @@ class CachedResultSet(ResultsFromRequestMixin, ResultSet):
 
 	@property
 	def loaded(self):
+		"""True if a successful load has taken place and cache is not expired."""
 		return super().loaded and self._expires >= time.time()
 
 	def invalidate(self):
-		"""Point out, that the cached response is propably not valid anymore."""
+		"""Reset propably cached things."""
 		self._response = None
 		self._results = None
 

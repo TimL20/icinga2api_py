@@ -12,6 +12,10 @@ class Icinga2Objects(CachedResultSet):
 	This class is a CachedResultSet, so a Request is used to (re)load the response its results on demand or after cache
 	expiry (time in seconds)."""
 	def __init__(self, request, caching, response=None):
+		"""Init a Icinga2Objects representation from a request.
+		:param request The request whose results are represented.
+		:param caching Caching time in seconds.
+		:param response Optional already loaded response for the request."""
 		super().__init__(request, caching, response)
 
 	def result(self, index):
@@ -30,7 +34,7 @@ class Icinga2Objects(CachedResultSet):
 
 	def plain_result(self, index):
 		# More kind of a workaround...
-		# TODO find another solution (?)
+		# TODO find a better solution, I don't like this that much...
 		return super().result(index)
 
 	###################################################################################################################
@@ -87,28 +91,39 @@ class Icinga2Objects(CachedResultSet):
 
 class Icinga2Object(Icinga2Objects, Result):
 	"""Object representing exactly one Icinga2 configuration object.
-	Only the first results objects is used if the request returned more than one object."""
+	Only the first results objects is used if the request returned more than one object.
+	This class extends Icinga2Objects and Result, so it's Mapping and Sequence in one. On an iteration only the sequence
+	feature is taken into account (so only this one and only object is yield)."""
 	def __init__(self, request, name, caching, response=None, data=None):
+		"""Init a Icinga2Object representation from a request.
+		:param request The request whose results are represented.
+		:param name The name of this object. This is used somewhere (not here).
+		:param caching Caching time in seconds.
+		:param response Optional response from this request if already loaded.
+		:param data Optional the one results object (represented) from a appropriate request if already loaded."""
 		super().__init__(request, caching, response)
 		self.name = name
 		if data is not None:
 			self._results = [data]
 
 	def result(self, index=0):
+		"""Return plain result."""
 		# TODO add a hint if the request returned more than one result - ignoring is not the best solution...
 		return self.plain_result(0)
 
 	def __getitem__(self, item):
+		"""Implements Mapping and sequence item access in one."""
 		if isinstance(item, int):
 			return self.result(item)
 		return self.result()[item]
 
 	def __len__(self):
+		"""Results length - this will always return None, not the real length of results from the request."""
 		return 1
 
 	def __iter__(self):
 		"""Returns a generator, generating just this one and only object.
-		Otherwise we may run into trouble because of the relationship to Icinga2Objects."""
+		Otherwise we may run into trouble because of the relationship to Icinga2Objects (as that's a sequence)."""
 		def generator():
 			yield self
 

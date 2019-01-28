@@ -22,6 +22,7 @@ class Hosts(Icinga2Objects):
 
 
 class Service(Icinga2Object):
+	"""Representation of an Icinga2 Service object."""
 	@property
 	def host(self):
 		"""Get host to wich this service beongs to."""
@@ -37,7 +38,7 @@ class Services(Icinga2Objects):
 
 
 class Templates(Icinga2Objects):
-	"""Representation of an Icinga2 templates."""
+	"""Representation of Icinga2 templates."""
 	def __init__(self, request, caching, response=None):
 		super().__init__(request, caching, response)
 		self.modify = None  # Not supported for templates
