@@ -18,7 +18,10 @@ class Host(Icinga2Object):
 
 
 class Hosts(Icinga2Objects):
-	pass  # TODO construct Host object for result
+	"""Representation of Icinga2 host objects."""
+	def result(self, index):
+		"""Return a Host object at this index."""
+		return self.result_as(index, Host)
 
 
 class Service(Icinga2Object):
@@ -34,7 +37,9 @@ class Service(Icinga2Object):
 
 
 class Services(Icinga2Objects):
-	pass  # TODO construct Service object for result
+	def result(self, index):
+		"""Return a Service object at this index."""
+		return self.result_as(index, Service)
 
 
 class Templates(Icinga2Objects):

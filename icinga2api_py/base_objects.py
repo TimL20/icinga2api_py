@@ -18,24 +18,23 @@ class Icinga2Objects(CachedResultSet):
 		:param response Optional already loaded response for the request."""
 		super().__init__(request, caching, response)
 
-	def result(self, index):
-		"""Return the Icinga2Object at this index."""
-		if not self.loaded:
-			# TODO implement
-			raise NotImplementedError("Creating Icinga2Object from not loaded Icinga2Objects not implemented yet")
+	def result_as(self, index, class_):
+		"""Return result at given index as a defined type (results.Result or Icinga2Object subclass)."""
+		if not issubclass(class_, Icinga2Object):  # and not isinstance(class_, Result)
+			return class_(super().result(index))
 
+		# TODO maybe it's possible without loading (if not self.loaded)?
 		# Get result object
 		res = super().result(index)
 		# Build request for single object with filter string
 		mquery = self._request.clone()
 		fstring = "{}.name==\"{}\"".format(res["type"], res["name"])
 		mquery.json = {"filter": fstring}
-		return Icinga2Object(mquery, res["name"], self._expiry, data=res)
+		return class_(mquery, res["name"], self._expiry, data=res)
 
-	def plain_result(self, index):
-		# More kind of a workaround...
-		# TODO find a better solution, I don't like this that much...
-		return super().result(index)
+	def result(self, index):
+		"""Return the Icinga2Object at this index."""
+		self.result_as(index, Icinga2Object)
 
 	###################################################################################################################
 	# Actions #########################################################################################################
@@ -106,10 +105,14 @@ class Icinga2Object(Icinga2Objects, Result):
 		if data is not None:
 			self._results = [data]
 
+	def result_as(self, index, class_):
+		"""Overriding result_as from Icinga2Object to always return the object at index 0."""
+		# TODO add a hint if the request returned more than one result - ignoring is not the best solution...
+		return super().result_as(0, class_)
+
 	def result(self, index=0):
 		"""Return plain result."""
-		# TODO add a hint if the request returned more than one result - ignoring is not the best solution...
-		return self.plain_result(0)
+		return self.result_as(index, Result)
 
 	def __getitem__(self, item):
 		"""Implements Mapping and sequence item access in one."""

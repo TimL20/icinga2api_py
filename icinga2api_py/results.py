@@ -23,9 +23,11 @@ class ResultSet(collections.abc.Sequence):
 		try:
 			data = self.response.json()
 			self._results = tuple(data["results"])
-		except (KeyError, TypeError):
+		except KeyError:
+			self._results = tuple()
+		except TypeError:
 			# No results in body or wrong type
-			self._results = None  # TODO evaluate that line
+			self._results = None
 			raise exceptions.InvalidIcinga2ApiResponseError()
 
 	@property
@@ -76,10 +78,10 @@ class ResultSet(collections.abc.Sequence):
 			for key in attr:
 				try:
 					r = r[key]
-				except KeyError:
-					# TODO check if that TypeError thing occurs again here...
+				except (KeyError, TypeError):
+					# KeyError if no such key, TypeError if r is not a dict
 					if raise_nokey:
-						raise
+						raise KeyError("No such key")
 					else:
 						r = nokey_value
 						break
@@ -89,19 +91,29 @@ class ResultSet(collections.abc.Sequence):
 	def are_all(self, attr, expected):
 		"""Return True if all attributes have an expected value."""
 		attr = Result.parseAttrs(attr)
+		keyerror = isinstance(expected, KeyError) or expected == KeyError
 		for r in self.results:
 			for key in attr:
-				r = r[key]
-			if r != expected:
+				try:
+					r = r[key]
+				except (KeyError, TypeError):
+					if not keyerror:
+						return False
+			if r != expected and not keyerror:
 				return False
 		return True
 
 	def min_one(self, attr, expected):
 		"""Return True if minimum one attribute has an expected value"""
 		attr = Result.parseAttrs(attr)
+		keyerror_expected = isinstance(expected, KeyError) or expected == KeyError
 		for r in self.results:
 			for key in attr:
-				r = r[key]
+				try:
+					r = r[key]
+				except (KeyError, TypeError) as ex:
+					if keyerror_expected:
+						return True
 			if r == expected:
 				return True
 		return False

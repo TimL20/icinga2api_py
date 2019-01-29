@@ -2,6 +2,7 @@
 """This module provides objects important for functionality."""
 
 import logging
+import collections.abc
 from requests import Request, Response
 
 
@@ -40,7 +41,10 @@ class APIRequest(Request):
 		"""Clone this APIRequest."""
 		request = APIRequest(self.api)
 		for attr in self.attrs:
-			setattr(request, attr, getattr(self, attr))
+			val = getattr(self, attr)
+			# Copy Mappings (e.g. headers)
+			val = dict(val) if isinstance(val, collections.abc.Mapping) else val
+			setattr(request, attr, val)
 		return request
 
 	def prepare(self):
@@ -100,6 +104,8 @@ class Query(APIRequest):
 			name = None
 		# Cut last letter of plural form if name is known (= if single object)
 		type_ = type_[:-1] if name is not None and type_[-1:] == "s" else type_
+		# Append letter 's' if it's not a single object (= name not known) - only to avoid confusion...
+		type_ = type_ + 's' if name is None and type_[-1:] != "s" else type_
 		logging.getLogger(__name__).debug("Assumed type %s and name %s from URL %s", type_, name, self.url)
 
 		if "name" in kwargs:
