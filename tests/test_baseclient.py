@@ -10,7 +10,7 @@ def get_pid(client):
 
 #######################################################################################################################
 def test(host, username, password, **kwargs):
-    client = API(host, (username, password), **kwargs)
+    client = API.from_pieces(host, auth=(username, password), **kwargs)
     pid = get_pid(client)
     print("Icinga PID: {}".format(pid))
 

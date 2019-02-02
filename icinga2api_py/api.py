@@ -19,29 +19,29 @@ HTTP_METHODS = ('GET', 'POST', 'PUT', 'DELETE')
 class API(requests.Session):
 	"""Objects of this class are used to construct a request (and later response). Also this class is a requests.Session
 	subclass and therefore also offer that functionality."""
-	def __init__(self, host, auth=None, port=5665, uri_prefix='/v1', **sessionparams):
-		# TODO make this constructor a alternative (classmethod) and a better one with base_url
+	def __init__(self, url, **sessionparams):
 		super().__init__()
-		self.base_url = "https://{}:{}{}/".format(host, port, uri_prefix)
+		self.base_url = url
 
 		# Set session parameters like verify, proxies, ...
 		for key, value in sessionparams.items():
 			setattr(self, key, value)
 
-		# Shortcut, because this auth method is often used, and programmers are lazy
-		if auth is not None:
-			self.auth = auth
-
 		# This is here to simplify extending the API class and changing its behavior
 		self.request_class = APIRequest
 
-	def clone(self):
+	@classmethod
+	def from_pieces(cls, host, port=5665, url_prefix='/v1', **sessionparams):
+		url = "https://{}:{}{}/".format(host, port, url_prefix)
+		return cls(url, **sessionparams)
+
+	@classmethod
+	def clone(cls, obj):
 		sessionparams = {}
-		for attr in self.__attrs__:
-			sessionparams[attr] = getattr(self, attr, None)
-		api = API(None, **sessionparams)
-		api.base_url = self.base_url
-		api.request_class = self.request_class
+		for attr in obj.__atrrs__:
+			sessionparams[attr] = getattr(obj, attr, None)
+		api = cls(obj.base_url, **sessionparams)
+		api.request_class = obj.request_class
 		return api
 
 	def __getattr__(self, item):

@@ -10,18 +10,8 @@ from . import objects
 
 class Client(API):
 	"""Icinga2 API client for non-streaming content, without objects."""
-	def __init__(self, host, auth=None, port=5665, uri_prefix='/v1', **sessionparams):
-		super().__init__(host, auth, port, uri_prefix, **sessionparams)
-
-	def clone(self):
-		"""Clone this client."""
-		sessionparams = {}
-		for attr in self.__attrs__:
-			sessionparams[attr] = getattr(self, attr, None)
-		client = Client(None, **sessionparams)
-		client.base_url = self.base_url
-		client.request_class = self.request_class
-		return client
+	def __init__(self, url, **sessionparams):
+		super().__init__(url, **sessionparams)
 
 	@staticmethod
 	def create_response(response):
@@ -31,25 +21,17 @@ class Client(API):
 
 class Icinga2(API):
 	"""A client for the object oriented part."""
-	def __init__(self, host, auth=None, port=5665, uri_prefix='/v1', caching=float("inf"), **sessionparams):
-		super().__init__(host, auth, port, uri_prefix, **sessionparams)
+	def __init__(self, url, caching=float("inf"), **sessionparams):
+		super().__init__(url, **sessionparams)
 		self.caching = caching
 		self.request_class = Query
-
-	def clone(self):
-		"""Clone this Icinga2 instance."""
-		sessionparams = {}
-		for attr in self.__attrs__:
-			sessionparams[attr] = getattr(self, attr, None)
-		icinga = Icinga2(None, caching=self.caching, **sessionparams)
-		icinga.base_url = self.base_url
-		icinga.request_class = self.request_class
-		return icinga
+		self._client = None
 
 	@property
 	def client(self):
 		"""Get non-OOP interface client. This is done by calling clone() of super()."""
-		return super().clone()
+		# TODO this should be a method rather than a property
+		return API.clone(self)
 
 	def object_from_query(self, type_, request, name=None, **kwargs):
 		"""Get a appropriate python object to represent whatever is requested with the request.

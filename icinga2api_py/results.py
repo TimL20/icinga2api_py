@@ -88,10 +88,25 @@ class ResultSet(collections.abc.Sequence):
 			ret.append(r)
 		return ret
 
+	def count(self, attr, expected):
+		"""Return number of attributes having an expected value."""
+		attr = Result.parseAttrs(attr)
+		cnt = 0
+		for r in self.results:
+			for key in attr:
+				try:
+					r = r[key]
+				except (KeyError, TypeError):
+					r = KeyError
+					break
+			if r == expected:
+				cnt += 1
+		return cnt
+
 	def are_all(self, attr, expected):
 		"""Return True if all attributes have an expected value."""
 		attr = Result.parseAttrs(attr)
-		keyerror = isinstance(expected, KeyError) or expected == KeyError
+		keyerror = expected == KeyError
 		for r in self.results:
 			for key in attr:
 				try:
@@ -106,12 +121,12 @@ class ResultSet(collections.abc.Sequence):
 	def min_one(self, attr, expected):
 		"""Return True if minimum one attribute has an expected value"""
 		attr = Result.parseAttrs(attr)
-		keyerror_expected = isinstance(expected, KeyError) or expected == KeyError
+		keyerror_expected = expected == KeyError
 		for r in self.results:
 			for key in attr:
 				try:
 					r = r[key]
-				except (KeyError, TypeError) as ex:
+				except (KeyError, TypeError):
 					if keyerror_expected:
 						return True
 			if r == expected:
@@ -120,12 +135,15 @@ class ResultSet(collections.abc.Sequence):
 
 	def min_max(self, attr, expected, min, max):
 		"""Return True if minimum *min* and maximum *max* results attributes have an expected value."""
-		# TODO care about KeyErrors
 		attr = Result.parseAttrs(attr)
 		i = 0
 		for r in self.results:
 			for key in attr:
-				r = r[key]
+				try:
+					r = r[key]
+				except (KeyError, TypeError):
+					r = KeyError
+					break
 			if r == expected:
 				i += 1
 				if i > max:
