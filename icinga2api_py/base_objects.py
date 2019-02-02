@@ -4,6 +4,7 @@
 
 import logging
 
+import collections.abc
 from .results import CachedResultSet, Result
 
 
@@ -11,26 +12,27 @@ class Icinga2Objects(CachedResultSet):
 	"""Object representing one or more Icinga2 configuration objects.
 	This class is a CachedResultSet, so a Request is used to (re)load the response its results on demand or after cache
 	expiry (time in seconds)."""
-	def __init__(self, request, caching, response=None):
+	def __init__(self, request, cache_time, response=None, results=None):
 		"""Init a Icinga2Objects representation from a request.
 		:param request The request whose results are represented.
-		:param caching Caching time in seconds.
-		:param response Optional already loaded response for the request."""
-		super().__init__(request, caching, response)
+		:param cache_time Caching time in seconds.
+		:param response Optional already loaded response for the request.
+		:param results Optional already loaded results."""
+		super().__init__(request, cache_time, response, results)
 
 	def result_as(self, index, class_):
 		"""Return result at given index as a defined type (results.Result or Icinga2Object subclass)."""
 		if not issubclass(class_, Icinga2Object):  # and not isinstance(class_, Result)
 			return class_(super().result(index))
 
-		# TODO maybe it's possible without loading (if not self.loaded)?
+		# TODO maybe it's possible without (full) loading (if not self.loaded)?
 		# Get result object
 		res = super().result(index)
 		# Build request for single object with filter string
 		mquery = self._request.clone()
 		fstring = "{}.name==\"{}\"".format(res["type"], res["name"])
 		mquery.json = {"filter": fstring}
-		return class_(mquery, res["name"], self._expiry, data=res)
+		return class_(mquery, res["name"], self.cache_time, data=res)
 
 	def result(self, index):
 		"""Return the Icinga2Object at this index."""
@@ -52,8 +54,6 @@ class Icinga2Objects(CachedResultSet):
 		logging.getLogger(__name__).debug("Processing action {} for {} objects of type {}".format(action, len(names), type))
 		fstring = "\" or {}.name==\"".format(type)
 		fstring = "{}.name==\"{}\"".format(type, fstring.join(names))
-
-		# TODO rewrite the following
 
 		# self._request.api = Icinga2 (client) instance
 		query = self._request.api.actions.s(action).type(type.title()).filter(fstring)
@@ -90,24 +90,23 @@ class Icinga2Objects(CachedResultSet):
 
 class Icinga2Object(Icinga2Objects, Result):
 	"""Object representing exactly one Icinga2 configuration object.
-	Only the first results objects is used if the request returned more than one object.
+	Do not use an object of this class with a request, that may or may not return more than one result. This can cause
+	trouble, and as other objects than the first one are ignored you won't notice!
 	This class extends Icinga2Objects and Result, so it's Mapping and Sequence in one. On an iteration only the sequence
 	feature is taken into account (so only this one and only object is yield)."""
-	def __init__(self, request, name, caching, response=None, data=None):
+	def __init__(self, request, name, cache_time, response=None, results=None):
 		"""Init a Icinga2Object representation from a request.
 		:param request The request whose results are represented.
 		:param name The name of this object. This is used somewhere (not here).
-		:param caching Caching time in seconds.
+		:param cache_time Caching time in seconds.
 		:param response Optional response from this request if already loaded.
 		:param data Optional the one results object (represented) from a appropriate request if already loaded."""
-		super().__init__(request, caching, response)
+		results = results if isinstance(results, collections.abc.Sequence) else [results]
+		super().__init__(request, cache_time, response, results)
 		self.name = name
-		if data is not None:
-			self._results = [data]
 
 	def result_as(self, index, class_):
 		"""Overriding result_as from Icinga2Object to always return the object at index 0."""
-		# TODO add a hint if the request returned more than one result - ignoring is not the best solution...
 		return super().result_as(0, class_)
 
 	def result(self, index=0):
@@ -121,7 +120,7 @@ class Icinga2Object(Icinga2Objects, Result):
 		return self.result()[item]
 
 	def __len__(self):
-		"""Results length - this will always return None, not the real length of results from the request."""
+		"""Results length - this will always return one, not the real length of results from the request."""
 		return 1
 
 	def __iter__(self):

@@ -174,16 +174,18 @@ class ResultsFromRequestMixin:
 
 class CachedResultSet(ResultsFromRequestMixin, ResultSet):
 	"""ResultSet mixin implementing caching."""
-	def __init__(self, request, caching, response=None):
+	def __init__(self, request, cache_time, response=None, results=None):
 		"""ResultSet from Request with caching.
 		:param request The request returning the represented results
-		:param caching Cache expiry time in seconds
-		:param response APIResponse for this request if already loaded."""
-		# TODO maybe add data parameter to set results???
+		:param cache_time Cache expiry time in seconds
+		:param response APIResponse for this request if already loaded.
+		:param results Optional results as list if already loaded."""
 		super().__init__(request)
 		self._response = response
-		self._expiry = caching
-		self._expires = caching
+		self._results = results
+		self._expiry = cache_time
+		self._expires = cache_time
+		self._hold = None
 
 	@property
 	def response(self):
@@ -209,10 +211,49 @@ class CachedResultSet(ResultsFromRequestMixin, ResultSet):
 		"""True if a successful load has taken place and cache is not expired."""
 		return super().loaded and self._expires >= time.time()
 
+	@property
+	def cache_time(self):
+		return self._expiry
+
+	@cache_time.setter
+	def cache_time(self, cache_time):
+		if self.held:
+			self._hold = cache_time
+		else:
+			self._expiry = cache_time
+
 	def invalidate(self):
 		"""Reset propably cached things."""
 		self._response = None
 		self._results = None
+
+	def hold(self):
+		"""Set cache expiry to infinite to suppress reload by cache expiry.
+		Call unhold() to undo this, the old cache expiry value is stored."""
+		if self.held:
+			raise ValueError("Cannot hold twice.")
+
+		self._hold = self._expires
+		self._expires = float("inf")
+
+	def drop(self):
+		"""Undo hold - cache expiry is set to old value."""
+		if self._hold is None:
+			raise ValueError("Cannot drop without hold.")
+
+		self._expires = self._hold
+		self._hold = None
+
+	@property
+	def held(self):
+		"""Whether or not hold() was called without drop()."""
+		return self._hold is None
+
+	def __enter__(self):
+		self.hold()
+
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		self.drop()
 
 
 class Result(collections.abc.Mapping):
