@@ -1,53 +1,38 @@
 # -*- coding: utf-8 -*-
-"""This module contains all relevant stuff regarding the results attribute of an Icinga2 API response."""
+"""
+This module contains all relevant stuff regarding the results attribute of an Icinga2 API response.
+Very similar to the module models.
+"""
 
 import collections.abc
 import time
-from . import exceptions
 
 
 class ResultSet(collections.abc.Sequence):
 	"""Represents a set of results returned from the Icinga2 API."""
-	def __init__(self, response):
+	def __init__(self, results=None):
 		"""Construct a ResultSet with an APIResponse."""
-		self._response = response
-		self._results = None
-
-	@property
-	def response(self):
-		"""The original response from the Icinga2 API."""
-		return self._response
+		self._results = results or None
 
 	def load(self):
-		"""Parse results of response."""
-		try:
-			data = self.response.json()
-			self._results = tuple(data["results"])
-		except KeyError:
-			self._results = tuple()
-		except TypeError:
-			# No results in body or wrong type
-			self._results = None
-			raise exceptions.InvalidIcinga2ApiResponseError()
+		"""Load results into _results. It's here to be overridden."""
+		pass
 
 	@property
 	def results(self):
-		"""All results as a sequnce. This is used internally."""
+		"""All results as a ("naked") sequnce. Meant for internal use."""
 		if self._results is None:
 			self.load()
 		return self._results
 
-	@property
-	def loaded(self):
-		"""True if results are loaded."""
-		return self._results is not None
-
 	def result(self, index):
-		"""Return result at the given index."""
+		"""Return result at the given index, or a ResultSet."""
+		if isinstance(index, slice):
+			return ResultSet(self.results[index])
 		return Result(self.results[index])
 
 	def __getitem__(self, index):
-		"""Return one result at given index."""
+		"""Return one result at given index, or a ResultSet."""
 		return self.result(index)
 
 	def __len__(self):
@@ -150,11 +135,34 @@ class ResultSet(collections.abc.Sequence):
 					return False
 		return i >= min
 
+	# TODO method like get_where -> get results, that have value as attribute
 
-class ResultsFromRequestMixin:
-	"""ResultSet mixin implementing load (once) on demand."""
+
+class ResultsFromResponse(ResultSet):
+	"""ResultSet from a given APIResponse."""
+	def __init__(self, response):
+		super().__init__()
+		self._response = response
+
+	@property
+	def response(self):
+		"""The original response from the Icinga2 API."""
+		return self._response
+
+	def load(self):
+		"""Parse results of response."""
+		self._results = self.response.results()
+
+	@property
+	def loaded(self):
+		"""True if results are loaded."""
+		return self._results is not None
+
+
+class ResultsFromRequest(ResultSet):
+	"""ResultSet loaded (once) on demand from a given request."""
 	def __init__(self, request):
-		"""ResultSet from Request constructor."""
+		super().__init__()
 		self._request = request
 		self._response = None
 		self._results = None
@@ -166,14 +174,18 @@ class ResultsFromRequestMixin:
 			self._response = self._request()
 		return self._response
 
+	def load(self):
+		"""Parse results of response. Calls the response property to load the response from the request."""
+		self._results = self.response.results()
+
 	@property
 	def loaded(self):
 		"""True if a successful load has taken place."""
 		return self._response is not None and self._results is not None
 
 
-class CachedResultSet(ResultsFromRequestMixin, ResultSet):
-	"""ResultSet mixin implementing caching."""
+class CachedResultSet(ResultsFromRequest):
+	"""ResultSet from a request with caching."""
 	def __init__(self, request, cache_time, response=None, results=None):
 		"""ResultSet from Request with caching.
 		:param request The request returning the represented results

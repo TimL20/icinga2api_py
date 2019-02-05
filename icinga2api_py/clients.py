@@ -3,7 +3,7 @@
 
 from .api import API
 from .models import Query, APIResponse
-from .results import ResultSet
+from .results import ResultsFromResponse
 from .base_objects import Icinga2Objects, Icinga2Object
 from . import objects
 
@@ -16,7 +16,7 @@ class Client(API):
 	@staticmethod
 	def create_response(response):
 		"""Return ResultSet with APIResponse with given response."""
-		return ResultSet(APIResponse.from_response(response))
+		return ResultsFromResponse(APIResponse(response))
 
 
 class Icinga2(API):

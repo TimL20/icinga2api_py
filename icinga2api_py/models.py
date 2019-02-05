@@ -4,6 +4,7 @@
 import logging
 import collections.abc
 from requests import Request, Response
+from . import exceptions
 
 
 class APIRequest(Request):
@@ -70,10 +71,13 @@ class Query(APIRequest):
 	# Information where to find the object type and name for which URL schema
 	TYPES_AND_NAMES = {
 		"objects": (1, 2),  # /objects/<type>/<name>
-		"templates": (0, 2),  # /templates/<temptype>/<name> -> type=template
+		"templates": (0, 2),  # /templates/<temptype>/<name> -> type=template(s)
 		"variables": (0, 1),  # /variables/<name>
+		"status": (0, 1),  # /status/<statustype>
+		"types": (0, 1),  # /types/<type>
 		"actions": None,  # not an object
-		# TODO add more (?)
+		"console": None,  # not an object
+		# TODO how to handle config?
 	}
 
 	def clone(self):
@@ -119,14 +123,9 @@ class Query(APIRequest):
 
 class APIResponse(Response):
 	"""Represents a response from the Icinga2 API."""
-
-	@classmethod
-	def from_response(cls, response):
-		"""Create a response from a response and return it."""
-		res = cls()
-		# Thankfully there's a easy way to do this (although I don't like the choice of names...)
-		res.__setstate__(response.__getstate__())
-		return res
+	def __init__(self, response):
+		super().__init__()
+		self.__setstate__(response.__getstate__())
 
 	def json(self, **kwargs):
 		"""JSON encoded content of the response (if any). Returns None on error."""
@@ -135,3 +134,12 @@ class APIResponse(Response):
 		except ValueError:
 			# No valid JSON encoding
 			return None
+
+	def results(self, **kwargs):
+		try:
+			data = self.json(**kwargs)
+			return tuple(data["results"])
+		except KeyError:
+			return tuple()
+		except TypeError:
+			raise exceptions.InvalidIcinga2ApiResponseError()

@@ -12,6 +12,7 @@ class Icinga2Objects(CachedResultSet):
 	"""Object representing one or more Icinga2 configuration objects.
 	This class is a CachedResultSet, so a Request is used to (re)load the response its results on demand or after cache
 	expiry (time in seconds)."""
+	# TODO maybe split this up into one general and one like now? (Reason: issue with splices...)
 	def __init__(self, request, cache_time, response=None, results=None):
 		"""Init a Icinga2Objects representation from a request.
 		:param request The request whose results are represented.
@@ -36,6 +37,7 @@ class Icinga2Objects(CachedResultSet):
 
 	def result(self, index):
 		"""Return the Icinga2Object at this index."""
+		# TODO care about slices here or in result_as
 		self.result_as(index, Icinga2Object)
 
 	###################################################################################################################

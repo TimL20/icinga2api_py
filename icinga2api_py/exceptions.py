@@ -2,5 +2,9 @@
 """This module contains exceptions."""
 
 
-class InvalidIcinga2ApiResponseError(Exception):
+class Icinga2ApiError(ValueError):
+	"""Base class for all errors in this package."""
+
+
+class InvalidIcinga2ApiResponseError(Icinga2ApiError):
 	"""Raised, when there was an invalid response (according to the Icinga2 API documentation)."""

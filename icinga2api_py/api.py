@@ -96,4 +96,4 @@ class API(requests.Session):
 	@staticmethod
 	def create_response(response):
 		"""Create a custom response from a requests.Response."""
-		return APIResponse.from_response(response)
+		return APIResponse(response)
