@@ -12,7 +12,7 @@ class ResultSet(collections.abc.Sequence):
 	"""Represents a set of results returned from the Icinga2 API."""
 	def __init__(self, results=None):
 		"""Construct a ResultSet with an APIResponse."""
-		self._results = results or None
+		self._results = results
 
 	def load(self):
 		"""Load results into _results. It's here to be overridden."""
@@ -71,6 +71,22 @@ class ResultSet(collections.abc.Sequence):
 						r = nokey_value
 						break
 			ret.append(r)
+		return ret
+
+	def where(self, attr, expected):
+		"""Return list of results with expected value as attribute."""
+		attr = Result.parseAttrs(attr)
+		ret = []
+		for res in self.results:
+			r = res
+			for key in attr:
+				try:
+					r = r[key]
+				except (KeyError, TypeError):
+					r = KeyError
+					break
+			if r == expected:
+				ret.append(res)
 		return ret
 
 	def count(self, attr, expected):
@@ -134,8 +150,6 @@ class ResultSet(collections.abc.Sequence):
 				if i > max:
 					return False
 		return i >= min
-
-	# TODO method like get_where -> get results, that have value as attribute
 
 
 class ResultsFromResponse(ResultSet):
@@ -266,6 +280,18 @@ class CachedResultSet(ResultsFromRequest):
 
 	def __exit__(self, exc_type, exc_val, exc_tb):
 		self.drop()
+
+
+class ResultList(ResultSet, collections.abc.MutableSequence):
+	"""Mutable results representation, with all nice features of ResultSet."""
+	def __delitem__(self, key):
+		del self.results[key]
+
+	def __setitem__(self, index, value):
+		self.results[index] = value
+
+	def insert(self, index, value):
+		self.results.insert(index, value)
 
 
 class Result(collections.abc.Mapping):

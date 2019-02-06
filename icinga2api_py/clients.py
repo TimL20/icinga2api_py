@@ -21,17 +21,15 @@ class Client(API):
 
 class Icinga2(API):
 	"""A client for the object oriented part."""
-	def __init__(self, url, caching=float("inf"), **sessionparams):
+	def __init__(self, url, cache_time=float("inf"), **sessionparams):
 		super().__init__(url, **sessionparams)
-		self.caching = caching
+		self.cache_time = cache_time
 		self.request_class = Query
 		self._client = None
 
-	@property
 	def client(self):
 		"""Get non-OOP interface client. This is done by calling clone() of super()."""
-		# TODO this should be a method rather than a property
-		return API.clone(self)
+		return Client.clone(self)
 
 	def object_from_query(self, type_, request, name=None, **kwargs):
 		"""Get a appropriate python object to represent whatever is requested with the request.
@@ -39,7 +37,7 @@ class Icinga2(API):
 		Remaining kwargs are passed to the constructor (Icinga2Object, Host, ...)."""
 		class_ = getattr(objects, type_.title(), None)
 		# Todo cut s of plural form if name is not None
-		initargs = {"caching": self.caching}
+		initargs = {"cache_time": self.cache_time}
 		if name is not None:
 			initargs["name"] = name
 		initargs.update(kwargs)
@@ -55,13 +53,13 @@ class Icinga2(API):
 		# TODO maybe with python objects?
 		type_ = type_.lower()
 		type_ = type_ if type_[-1:] == "s" else type_ + "s"
-		return self.client.objects.s(type_).s(name).templates(list(templates)).attrs(attrs)\
+		return self.client().objects.s(type_).s(name).templates(list(templates)).attrs(attrs)\
 			.ignore_on_error(bool(ignore_on_error)).put()  # Fire request immediately
 
 	def console(self, command, session=None, sandboxed=None):
 		"""Usage of the Icinga2 (API) console feature."""
 		# TODO auto-completion is possible through a different URL endpoint
-		query = self.client.console.s("execute-script").command(command).session(session).sandboxed(sandboxed)
+		query = self.client().console.s("execute-script").command(command).session(session).sandboxed(sandboxed)
 		return query.post()
 
 	# TODO implement configuration management (?)

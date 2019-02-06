@@ -5,14 +5,13 @@
 import logging
 
 import collections.abc
-from .results import CachedResultSet, Result
+from .results import CachedResultSet, ResultList, Result
 
 
 class Icinga2Objects(CachedResultSet):
 	"""Object representing one or more Icinga2 configuration objects.
 	This class is a CachedResultSet, so a Request is used to (re)load the response its results on demand or after cache
 	expiry (time in seconds)."""
-	# TODO maybe split this up into one general and one like now? (Reason: issue with splices...)
 	def __init__(self, request, cache_time, response=None, results=None):
 		"""Init a Icinga2Objects representation from a request.
 		:param request The request whose results are represented.
@@ -22,11 +21,16 @@ class Icinga2Objects(CachedResultSet):
 		super().__init__(request, cache_time, response, results)
 
 	def result_as(self, index, class_):
-		"""Return result at given index as a defined type (results.Result or Icinga2Object subclass)."""
-		if not issubclass(class_, Icinga2Object):  # and not isinstance(class_, Result)
-			return class_(super().result(index))
+		"""Get single at given index result as a definded type (results.Result, Icinga2Object or Icinga2Object subclass)."""
+		if not issubclass(class_, Icinga2Object):
+			# New object with result from parent class
+			# Handles slicing
+			return super().result(index)
 
-		# TODO maybe it's possible without (full) loading (if not self.loaded)?
+		if isinstance(index, slice):
+			# Icinga2ObjectList with object of class_
+			return Icinga2ObjectList([class_(obj) for obj in super().results[index]])
+
 		# Get result object
 		res = super().result(index)
 		# Build request for single object with filter string
@@ -37,15 +41,14 @@ class Icinga2Objects(CachedResultSet):
 
 	def result(self, index):
 		"""Return the Icinga2Object at this index."""
-		# TODO care about slices here or in result_as
-		self.result_as(index, Icinga2Object)
+		return self.result_as(index, Icinga2Object)
 
 	###################################################################################################################
 	# Actions #########################################################################################################
 	###################################################################################################################
 
 	def action(self, action, **parameters):
-		"""Process an action with specified parameters. This method works only, because each and every object query 
+		"""Process an action with specified parameters. This method works only, because each and every object query
 		result has object type (type) and full object name (name) for the object. It is assumed, that the type is the
 		same for all objects (should be...). With this information, a filter is created, that should match all Icinga2
 		objects represented."""
@@ -90,6 +93,15 @@ class Icinga2Objects(CachedResultSet):
 		return ret  # Return query result
 
 
+class Icinga2ObjectList(ResultList):
+	"""List of Icinga2 configuration objects.
+	The difference to Icinga2Objects is, that the objects here are really handled as single objects, whereas in
+	Icinga2Objects they are handled as one results list from a request/response.
+	This way it's possible to add objects to a Icinga2ObjectList.
+	On the other hand, operations (actions, modify, delete) must be handled for every single object.
+	A Icinga2ObjectList is built on slicing a Icinga2Objects object."""
+
+
 class Icinga2Object(Icinga2Objects, Result):
 	"""Object representing exactly one Icinga2 configuration object.
 	Do not use an object of this class with a request, that may or may not return more than one result. This can cause
@@ -102,7 +114,7 @@ class Icinga2Object(Icinga2Objects, Result):
 		:param name The name of this object. This is used somewhere (not here).
 		:param cache_time Caching time in seconds.
 		:param response Optional response from this request if already loaded.
-		:param data Optional the one results object (represented) from a appropriate request if already loaded."""
+		:param results Optional the one results object (represented) from a appropriate request if already loaded."""
 		results = results if isinstance(results, collections.abc.Sequence) else [results]
 		super().__init__(request, cache_time, response, results)
 		self.name = name
