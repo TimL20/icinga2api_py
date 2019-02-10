@@ -1,18 +1,18 @@
 # Clients
-This library is structured in three layers:
-
-| Layer number | Client | Inherits from | Short description |
-|:------------ |:------ |:------------- |:----------------- |
-| 1 | API | - | Base client - basically just a simple wrapper to make requests to Icinga2 easier |
-| 2 | Client | API | Parses responses from Icinga2 for easier (results) access |
-| 3 | Icinga2 | Client | Object oriented access |
+This library has different clients that have different capabilities.
 
 ## Basic API client
-This client is everything of the module icinga2api_py.api. This module could be used standalone.
-It is documented in "Basic_API_Client".
+The base Client is just called `API`. It is a wrapper around the requests package to make building a request and
+parsing a response easy. The requests and responses built by this Client are `models.APIRequest`s and
+`models.APIResponse`s.
+Every other client inherits from `API`. `API` itself inherits from `requests.Session`. That way data like e.g.
+authentication is stored.
 
-## Proper Client
-This Client is documented in "Client".
+## The Client client
+This Client is documented in "Client". `Client` inherits from `API`. The requests are here exactly the same as with
+`API`, but after firing the request a ResultSet is returned, which provides a much better way of handling responses
+with results from the Icinga2 API.
 
 ## Icinga2 OO Client
-This client is documented in "OO".
+This client provides the feature of getting Icinga2 configuration objects represented as Python objects. It is
+documented in "OO".

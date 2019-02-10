@@ -77,7 +77,7 @@ class Query(APIRequest):
 		"types": (0, 1),  # /types/<type>
 		"actions": None,  # not an object
 		"console": None,  # not an object
-		# TODO how to handle config?
+		"config": None,  # not really objects...
 	}
 
 	def clone(self):
@@ -96,14 +96,14 @@ class Query(APIRequest):
 			if self.TYPES_AND_NAMES[basetype] is None:
 				# Not an object, so don't return an object
 				request = super().clone()
-				return request()  # Fire APIRequest
+				return self.api.results_from_query(request)  # Fire APIRequest
 
 			# Information about type and name in URL is known
 			type_ = url[self.TYPES_AND_NAMES[basetype][0]]
 			namepos = self.TYPES_AND_NAMES[basetype][1]
 			name = url[namepos] if len(url) > namepos > 0 else None
 		else:
-			# Default type guessing, usually works
+			# Default type guessing, should work
 			type_ = basetype
 			name = None
 		# Cut last letter of plural form if name is known (= if single object)

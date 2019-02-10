@@ -25,6 +25,11 @@ class ResultSet(collections.abc.Sequence):
 			self.load()
 		return self._results
 
+	@property
+	def loaded(self):
+		"""True if results are loaded."""
+		return self._results is not None
+
 	def result(self, index):
 		"""Return result at the given index, or a ResultSet."""
 		if isinstance(index, slice):
@@ -87,7 +92,7 @@ class ResultSet(collections.abc.Sequence):
 					break
 			if r == expected:
 				ret.append(res)
-		return ret
+		return ResultSet(ret)
 
 	def count(self, attr, expected):
 		"""Return number of attributes having an expected value."""
@@ -166,11 +171,6 @@ class ResultsFromResponse(ResultSet):
 	def load(self):
 		"""Parse results of response."""
 		self._results = self.response.results()
-
-	@property
-	def loaded(self):
-		"""True if results are loaded."""
-		return self._results is not None
 
 
 class ResultsFromRequest(ResultSet):
@@ -284,8 +284,8 @@ class CachedResultSet(ResultsFromRequest):
 
 class ResultList(ResultSet, collections.abc.MutableSequence):
 	"""Mutable results representation, with all nice features of ResultSet."""
-	def __delitem__(self, key):
-		del self.results[key]
+	def __delitem__(self, index):
+		del self.results[index]
 
 	def __setitem__(self, index, value):
 		self.results[index] = value

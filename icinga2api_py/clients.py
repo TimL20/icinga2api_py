@@ -3,7 +3,7 @@
 
 from .api import API
 from .models import Query, APIResponse
-from .results import ResultsFromResponse
+from .results import ResultsFromResponse, ResultsFromRequest
 from .base_objects import Icinga2Objects, Icinga2Object
 from . import objects
 
@@ -31,12 +31,17 @@ class Icinga2(API):
 		"""Get non-OOP interface client. This is done by calling clone() of super()."""
 		return Client.clone(self)
 
+	@staticmethod
+	def results_from_query(request):
+		"""Returns a ResultsFromRequest with the given request."""
+		return ResultsFromRequest(request)
+
 	def object_from_query(self, type_, request, name=None, **kwargs):
 		"""Get a appropriate python object to represent whatever is requested with the request.
 		This method assumes, that a named object is singular (= one object). The name is not used.
 		Remaining kwargs are passed to the constructor (Icinga2Object, Host, ...)."""
+		type_ = type_[:-1] if name is not None and type_[-1] == "s" else type_
 		class_ = getattr(objects, type_.title(), None)
-		# Todo cut s of plural form if name is not None
 		initargs = {"cache_time": self.cache_time}
 		if name is not None:
 			initargs["name"] = name
@@ -50,16 +55,7 @@ class Icinga2(API):
 
 	def create_object(self, type_, name, attrs, templates=tuple(), ignore_on_error=False):
 		"""Create an Icinga2 object through the API."""
-		# TODO maybe with python objects?
 		type_ = type_.lower()
 		type_ = type_ if type_[-1:] == "s" else type_ + "s"
 		return self.client().objects.s(type_).s(name).templates(list(templates)).attrs(attrs)\
 			.ignore_on_error(bool(ignore_on_error)).put()  # Fire request immediately
-
-	def console(self, command, session=None, sandboxed=None):
-		"""Usage of the Icinga2 (API) console feature."""
-		# TODO auto-completion is possible through a different URL endpoint
-		query = self.client().console.s("execute-script").command(command).session(session).sandboxed(sandboxed)
-		return query.post()
-
-	# TODO implement configuration management (?)

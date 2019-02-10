@@ -115,7 +115,7 @@ class Icinga2Object(Icinga2Objects, Result):
 		:param cache_time Caching time in seconds.
 		:param response Optional response from this request if already loaded.
 		:param results Optional the one results object (represented) from a appropriate request if already loaded."""
-		results = results if isinstance(results, collections.abc.Sequence) else [results]
+		results = results if isinstance(results, collections.abc.Sequence) or results is None else tuple(results)
 		super().__init__(request, cache_time, response, results)
 		self.name = name
 
