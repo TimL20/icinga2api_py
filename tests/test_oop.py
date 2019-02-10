@@ -14,7 +14,7 @@ def get_localhost(icinga):
 
 #######################################################################################################################
 def test(host, username, password, **kwargs):
-    icinga = Icinga2(host, (username, password), **kwargs)
+    icinga = Icinga2.from_pieces(host, auth=(username, password), **kwargs)
 
     pid = get_pid(icinga)
     print("Icinga PID: {}".format(pid))

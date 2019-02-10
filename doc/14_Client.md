@@ -1,41 +1,86 @@
 # Client
-The class `icinga2api_py.Client` is a subclass of `API`, wich usage was described in "Basic API Client". The client
-inherits everything from `API`, and does only change one thing: the response parser.
+The class `icinga2api_py.Client` is a subclass of `API` (usage described in "Basic API Client"). This client changes
+only one thing: it overrides the `create_response` method and returns a `ResultsFromResponse` object instead of an
+`APIResponse`.
 So everything stays the same, but you get parsed responses instead of the responses directly from requests.
+That why, this documentation chapter contains much more content about results than about the client itself.
 
-## Response
-Response, as returned from any request with the client, is a sequence customized for sucessfull responses of the
-Icinga2 API. You can get the original requests response with the `response` property, but you can also directly get the
-returned results of this response (`results` property), wich are already decoded.
-Any Response object acts like a presentation of these results. You can iterate through results, get a particular result,
-and so on, everything just with the response:
+## ResultSet
+
+A `ResultSet` object represents a set of results returned from the Icinga2 API. This class is not an ABC (abstract base
+class), although it's not meant to be instanciated (rarely useful).
+`ResultSet` implements lot's of feature fro inspecting results from Icinga2:
+- It's a sequence. The "items" are `Result` objects (built on demand). You can get those `Result`s by their index or
+ iterate over them. It's possible to get the results "naked" as a list via the `results` property, however this is
+ usually not really useful outside the library.
+- It's instead much more useful to slice a `ResultSet`. Another `ResultSet` is returned.
+- Every `ResultSet` has a `load` method and a `loaded` property, both without any meaning a general `ResultSet`.
+- The `values` method will return all values of one attribute for or results as a list. You can specify what to do if
+ the attribute does not exist for an attriute (raise_nokey and nokey_value parameters).
+- The `where` method returns all items (results), that have a expected value as an attribute. The expected value must
+ have the same type. If a result does not have the attrite, the attribute value, the value is handled as if it's a
+ `KeyError` class (not an object, the class itself).
+- The `count` methods counts, how many items (results) have an expected value.
+- The `are_all` method returns True, if all items (results) have an expected value.
+- The `min_one` method returns True, if minimum one item (result) has an expected value.
+- The `min_max` method returns True, if minuimum &lt;min&gt; and maximum &lt;max&gt; items (results) have an expected
+ value.
+
+These are the features of `ResultSet`, which has many usefull subclasses.
+
+### ResultsFromResponse
+
+`ResultsFromResponse` is a `ResultSet` subclass to load (parse) the results from a given `APIResponse`.
+Objects of this class are returned from the `Client` client.
+
+### ResultsFromRequest
+
+The `ResultsFromRequest` class implements to load the results of the `ResultSet` once (on demand) from a given request.
+
+### CachedResultSet
+
+The class `CachedResultSet` inherits from `ResultsFromRequest`. It uses a request to load the response (and it's
+results) on demand and reload it after a cache_time.
+
+### ResultList
+
+The `ResutList` class extends the abilities of `ResultSet` (from which it inherits) with being mutable like a standard
+Python list.
+
+## Result
+
+Objects of the class `Result` are created dynamically (on demand) from `ResultSet` and subclasses (by default) on
+accessing one item. `Result` objects are (immutable) Mappings (like a Python dict). This is extended with parsing
+accessed attributes like this:
+```
+value = res["attrs"]["last_check_result"]["output"]
+# Will be the same as
+value = res["attrs.last_check_result.output"]
+```
+
+## Examples
+
 ```
 from icinga2api_py import Client
-client = Client(host, (username, password))  # Create a client as with API
+client = Client.from_pieces(host, auth=(username, password))  # Create a client as with API
 
-appstatus = client.status.IcingaApplication.get()  # Get a response object
+appstatus = client.status.IcingaApplication.get()  # Get a ResultsFromResponse object
 
-pid = [0]["status"]["icingaapplication"]["app"]["pid"]  # Get something particular
+pid = appstatus[0]["status"]["icingaapplication"]["app"]["pid"]  # Get something particular
+print("Icinga runs with PID {}".format(pid))
 
-# Get one response with every host
+# Get one ResultsFromResponse containing every host Icinga knows (possibly bad idea on large system)
 hosts = client.objects.hosts.get()
 # Iterate over all hosts
 for host in hosts:
     print("Host {} has state {}".format(host["name"], host["attrs"]["state"]))
-```
 
-The request is executed with calling the HTTP method (`get()` in these examples).
 
-### Usefull methods
-Response objects also have some usefull methods.
-
-```
-# I assume we have all variables from the previous example
 
 # How much hosts does our monitoring know?
 print("Our monitoring knows currently {} host(s)".format(len(hosts)))
 
-# Print all host names (= get all name values)
+# Print all host names (= get all "name" values)
 print(", ".join(hosts.values("name")))
 
 # Are all hosts down? (= have all attrs.state attributes the value 1)
@@ -45,23 +90,14 @@ if hosts.are_all("attrs.state", 1):
 # Is minimum one host down (= has min. one attrs.state attribute the value 1)
 if hosts.min_one("attrs.state", 1):
     print("At least one host is down")
-```
 
-As shown in the last example, you can specify the Icinga2 attributes with the dot-syntax:
-```
-localhost = client.objects.hosts.localhost.get()[0]
+# List host names of hosts, that are down
+down = hosts.where("attrs.state", 1).values("name")
+print("The following hosts are down: {}".format(", ".join(down)))
+
 
 # Get value of attribute output in dictionary last_check_result in dictionary attrs
 localhost["attrs.last_check_result.output"]  # Output of last check result
-```
-
-### Everything else
-Response has a `__getattr()__` method, redirecting every unknown attribute to it's self.response property. This is
-usefull on errors ore similar:
-```
-hosts.ok  # True if request was successfull
-hosts.json()  # Returns the bare JSON parsed request, usefull on errors
-hosts.status_code  # HTTP response status code
 ```
 
 These are just some examples. You usually don't want to use these things as described above. But they are
