@@ -49,10 +49,14 @@ class Templates(Icinga2Objects):
 		self.modify = None  # Not supported for templates
 		self.delete = None  # Not supported for templates
 
+	def result(self, index):
+		"""Return a Template object at this index."""
+		return self.result_as(index, Template)
+
 
 class Template(Icinga2Object):
 	"""Representation of an Icinga2 template."""
-	def __init__(self, request, name, cache_time, response=None, data=None):
-		super().__init__(request, name, cache_time, response, data)
+	def __init__(self, request, name, cache_time, response=None, results=None):
+		super().__init__(request, name, cache_time, response, results)
 		self.modify = None  # Not supported for templates
 		self.delete = None  # Not supported for templates

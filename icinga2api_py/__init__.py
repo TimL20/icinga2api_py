@@ -2,6 +2,6 @@
 
 from .api import API
 from .clients import Client, Icinga2
-from .results import ResultSet, ResultsFromResponse, ResultList
+from .results import ResultSet, ResultsFromResponse, ResultsFromRequest, ResultList, Result
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
