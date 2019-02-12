@@ -37,7 +37,7 @@ class Icinga2Objects(CachedResultSet):
 		mquery = self._request.clone()
 		fstring = "{}.name==\"{}\"".format(res["type"], res["name"])
 		mquery.json = {"filter": fstring}
-		return class_(mquery, res["name"], self.cache_time, data=res)
+		return class_(mquery, res["name"], self.cache_time, results=res)
 
 	def result(self, index):
 		"""Return the Icinga2Object at this index."""
@@ -115,7 +115,7 @@ class Icinga2Object(Icinga2Objects, Result):
 		:param cache_time Caching time in seconds.
 		:param response Optional response from this request if already loaded.
 		:param results Optional the one results object (represented) from a appropriate request if already loaded."""
-		results = results if isinstance(results, collections.abc.Sequence) or results is None else tuple(results)
+		results = results if isinstance(results, collections.abc.Sequence) or results is None else (results,)
 		super().__init__(request, cache_time, response, results)
 		self.name = name
 

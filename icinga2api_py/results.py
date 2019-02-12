@@ -50,7 +50,7 @@ class ResultSet(collections.abc.Sequence):
 
 	def __str__(self):
 		"""Return short string representation."""
-		res = "no" if not bool(self) else len(self)
+		res = "?" if not self.loaded else "no" if not len(self) else len(self)
 		return "<ResultSet with {} results, status {}>".format(res, self.response.status_code)
 
 	###################################################################################################################
