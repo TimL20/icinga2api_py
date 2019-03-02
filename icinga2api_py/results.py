@@ -51,7 +51,7 @@ class ResultSet(collections.abc.Sequence):
 	def __str__(self):
 		"""Return short string representation."""
 		res = "?" if not self.loaded else "no" if not len(self) else len(self)
-		return "<ResultSet with {} results, status {}>".format(res, self.response.status_code)
+		return "<{} with {} results>".format(self.__class__.__name__, res)
 
 	###################################################################################################################
 	# Enhanced access to result data ##################################################################################
@@ -172,6 +172,11 @@ class ResultsFromResponse(ResultSet):
 		"""Parse results of response."""
 		self._results = self.response.results()
 
+	def __str__(self):
+		"""Return short string representation."""
+		res = "?" if not self.loaded else "no" if not len(self) else len(self)
+		return "<{} with {} results, status {}>".format(self.__class__.__name__, res, self.response.status_code)
+
 
 class ResultsFromRequest(ResultSet):
 	"""ResultSet loaded (once) on demand from a given request."""
@@ -196,6 +201,11 @@ class ResultsFromRequest(ResultSet):
 	def loaded(self):
 		"""True if a successful load has taken place."""
 		return self._response is not None and self._results is not None
+
+	def __str__(self):
+		"""Return short string representation."""
+		res = "?" if not self.loaded else "no" if not len(self) else len(self)
+		return "<{} with {} results, status {}>".format(self.__class__.__name__, res, self.response.status_code)
 
 
 class CachedResultSet(ResultsFromRequest):
@@ -294,11 +304,18 @@ class ResultList(ResultSet, collections.abc.MutableSequence):
 		self.results.insert(index, value)
 
 
-class Result(collections.abc.Mapping):
+class Result(ResultSet, collections.abc.Mapping):
 	"""Icinga2 API request result (one from results).
-	Basically just provides (read-only) access to the data of a dictionary."""
-	def __init__(self, res):
-		self._data = res
+	This class appears as a sequence with length one, also if more than one result is stored in the background.
+	The inheritance from Mapping does not make a difference for that, it's just to simplify attribute access (which is
+	the whole purpose of this class)."""
+	def __init__(self, results=None):
+		# Transform results into a tuple if it's not a Sequence (or None)
+		results = results if isinstance(results, collections.abc.Sequence) or results is None else (results,)
+		super().__init__(results)
+
+	def result(self, index=0):
+		return self
 
 	@staticmethod
 	def parseAttrs(attrs):
@@ -309,19 +326,24 @@ class Result(collections.abc.Mapping):
 			return attrs
 
 	def __getitem__(self, item):
-		ret = self._data
-		for item in self.parseAttrs(item):
-			ret = ret[item]
-		return ret
+		"""Implements Mapping and sequence access in one."""
+		if isinstance(item, int) or isinstance(item, slice):
+			return self.result(item)
 
-	def __getattr__(self, item):
-		return self[item]
+		# Mapping access
+		try:
+			ret = self._results[0]
+			for item in self.parseAttrs(item):
+				ret = ret[item]
+			return ret
+		except (KeyError, ValueError):
+			raise KeyError("No such key: {}".format(item))
 
 	def __len__(self):
-		return len(self._data)
+		"""Length of this sequence - this is always 1."""
+		return 1
 
 	def __iter__(self):
-		return iter(self._data)
-
-	def __str__(self):
-		return str(self._data)
+		"""Iterate of the "sequence" item (this one and only object).
+		This is not useful for this class, but to avoid trouble caused by the inheritance structure."""
+		yield self

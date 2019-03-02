@@ -102,7 +102,7 @@ class Icinga2ObjectList(ResultList):
 	A Icinga2ObjectList is built on slicing a Icinga2Objects object."""
 
 
-class Icinga2Object(Icinga2Objects, Result):
+class Icinga2Object(Result, Icinga2Objects):
 	"""Object representing exactly one Icinga2 configuration object.
 	Do not use an object of this class with a request, that may or may not return more than one result. This can cause
 	trouble, and as other objects than the first one are ignored you won't notice!
@@ -115,35 +115,16 @@ class Icinga2Object(Icinga2Objects, Result):
 		:param cache_time Caching time in seconds.
 		:param response Optional response from this request if already loaded.
 		:param results Optional the one results object (represented) from a appropriate request if already loaded."""
-		results = results if isinstance(results, collections.abc.Sequence) or results is None else (results,)
-		super().__init__(request, cache_time, response, results)
+		# Call super init of Result
+		super().__init__(results)
+		# Call other super init
+		Icinga2Objects.__init__(self, request, cache_time, response, results)
 		self.name = name
 
 	def result_as(self, index, class_):
 		"""Overriding result_as from Icinga2Object to always return the object at index 0."""
-		return super().result_as(0, class_)
+		return Icinga2Objects.result_as(self, 0, class_)
 
 	def result(self, index=0):
 		"""Return plain result."""
 		return self.result_as(index, Result)
-
-	def __getitem__(self, item):
-		"""Implements Mapping and sequence item access in one."""
-		if isinstance(item, int):
-			return self.result(item)
-		return self.result()[item]
-
-	def __len__(self):
-		"""Results length - this will always return one, not the real length of results from the request."""
-		return 1
-
-	def __iter__(self):
-		"""Returns a generator, generating just this one and only object.
-		Otherwise we may run into trouble because of the relationship to Icinga2Objects (as that's a sequence)."""
-		def generator():
-			yield self
-
-		return generator()
-
-	def __str__(self):
-		return str(self.result())
