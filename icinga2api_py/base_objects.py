@@ -104,8 +104,8 @@ class Icinga2ObjectList(ResultList):
 
 class Icinga2Object(Result, Icinga2Objects):
 	"""Object representing exactly one Icinga2 configuration object.
-	Do not use an object of this class with a request, that may or may not return more than one result. This can cause
-	trouble, and as other objects than the first one are ignored you won't notice!
+	Do not use an object of this class with a request that may return more than one result. This can cause
+	trouble, and as other objects than the first one are ignored it's not possible to notice.
 	This class extends Icinga2Objects and Result, so it's Mapping and Sequence in one. On an iteration only the sequence
 	feature is taken into account (so only this one and only object is yield)."""
 	def __init__(self, request, name, cache_time, response=None, results=None):
@@ -127,4 +127,4 @@ class Icinga2Object(Result, Icinga2Objects):
 
 	def result(self, index=0):
 		"""Return plain result."""
-		return self.result_as(index, Result)
+		return self.result_as(0, Result)

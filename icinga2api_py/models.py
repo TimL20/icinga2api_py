@@ -40,7 +40,7 @@ class APIRequest(Request):
 
 	def clone(self):
 		"""Clone this APIRequest."""
-		request = APIRequest(self.api)
+		request = self.__class__(self.api)
 		for attr in self.attrs:
 			val = getattr(self, attr)
 			# Copy Mappings (e.g. headers)
@@ -80,10 +80,15 @@ class Query(APIRequest):
 		"config": None,  # not really objects...
 	}
 
-	def clone(self):
-		"""Clone this Query."""
-		args = [getattr(self, attr, None) for attr in self.attrs]
-		return Query(self.api, *args)
+	def request(self):
+		"""Get an APIRequest equivalent to this Query."""
+		request = APIRequest(self.api)
+		for attr in APIRequest.attrs:
+			val = getattr(self, attr)
+			# Copy Mappings (e.g. headers)
+			val = dict(val) if isinstance(val, collections.abc.Mapping) else val
+			setattr(request, attr, val)
+		return request
 
 	def __call__(self, *args, **kwargs):
 		# Find object type and maybe name in URL
@@ -95,7 +100,7 @@ class Query(APIRequest):
 		if basetype in self.TYPES_AND_NAMES:
 			if self.TYPES_AND_NAMES[basetype] is None:
 				# Not an object, so don't return an object
-				request = super().clone()
+				request = self.request()
 				return self.api.results_from_query(request)  # Fire APIRequest
 
 			# Information about type and name in URL is known
@@ -109,15 +114,15 @@ class Query(APIRequest):
 		# Cut last letter of plural form if name is known (= if single object)
 		type_ = type_[:-1] if name is not None and type_[-1:] == "s" else type_
 		# Append letter 's' if it's not a single object (= name not known) - only to avoid confusion...
-		type_ = type_ + 's' if name is None and type_[-1:] != "s" else type_
+		type_ = type_ + 's' if name is None and type_[-1] != "s" else type_
 		logging.getLogger(__name__).debug("Assumed type %s and name %s from URL %s", type_, name, self.url)
 
 		if "name" in kwargs:
 			name = kwargs["name"]
 			del kwargs["name"]
 
-		# Get a request object by calling clone of super()
-		request = super().clone()
+		# Get a request object
+		request = self.request()
 		return self.api.object_from_query(type_, request, name, **kwargs)
 
 

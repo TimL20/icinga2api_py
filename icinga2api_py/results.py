@@ -94,7 +94,7 @@ class ResultSet(collections.abc.Sequence):
 				ret.append(res)
 		return ResultSet(ret)
 
-	def count(self, attr, expected):
+	def number(self, attr, expected):
 		"""Return number of attributes having an expected value."""
 		attr = Result.parseAttrs(attr)
 		cnt = 0
@@ -265,7 +265,7 @@ class CachedResultSet(ResultsFromRequest):
 
 	def hold(self):
 		"""Set cache expiry to infinite to suppress reload by cache expiry.
-		Call unhold() to undo this, the old cache expiry value is stored."""
+		Call drop() to undo this, the old cache expiry value is stored until drop."""
 		if self.held:
 			raise ValueError("Cannot hold twice.")
 
@@ -283,7 +283,7 @@ class CachedResultSet(ResultsFromRequest):
 	@property
 	def held(self):
 		"""Whether or not hold() was called without drop()."""
-		return self._hold is None
+		return self._hold is not None
 
 	def __enter__(self):
 		self.hold()
@@ -312,7 +312,7 @@ class Result(ResultSet, collections.abc.Mapping):
 	def __init__(self, results=None):
 		# Transform results into a tuple if it's not a Sequence (or None)
 		results = results if isinstance(results, collections.abc.Sequence) or results is None else (results,)
-		super().__init__(results)
+		ResultSet.__init__(self, results)
 
 	def result(self, index=0):
 		return self
@@ -332,7 +332,7 @@ class Result(ResultSet, collections.abc.Mapping):
 
 		# Mapping access
 		try:
-			ret = self._results[0]
+			ret = self.results[0]
 			for item in self.parseAttrs(item):
 				ret = ret[item]
 			return ret
