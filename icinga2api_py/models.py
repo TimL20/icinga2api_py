@@ -69,6 +69,7 @@ class Query(APIRequest):
 	"""Helper class to return an appropriate object for a query."""
 
 	# Information where to find the object type and name for which URL schema
+	# If None, than the result is supposed to be a results.ResultsFromResponse
 	TYPES_AND_NAMES = {
 		"objects": (1, 2),  # /objects/<type>/<name>
 		"templates": (0, 2),  # /templates/<temptype>/<name> -> type=template(s)
@@ -91,7 +92,9 @@ class Query(APIRequest):
 		return request
 
 	def __call__(self, *args, **kwargs):
-		# Find object type and maybe name in URL
+		"""Get a object representing the result of this query."""
+		# Get request for this query
+		request = self.request()
 		# Cut base url
 		url = self.url[self.url.find(self.api.base_url)+len(self.api.base_url):]
 		# Split by /
@@ -100,7 +103,6 @@ class Query(APIRequest):
 		if basetype in self.TYPES_AND_NAMES:
 			if self.TYPES_AND_NAMES[basetype] is None:
 				# Not an object, so don't return an object
-				request = self.request()
 				return self.api.results_from_query(request)  # Fire APIRequest
 
 			# Information about type and name in URL is known
@@ -111,7 +113,7 @@ class Query(APIRequest):
 			# Default type guessing, should work
 			type_ = basetype
 			name = None
-		# Cut last letter of plural form if name is known (= if single object)
+		# Cut last letter 's' of plural form if name is known (= if single object)
 		type_ = type_[:-1] if name is not None and type_[-1:] == "s" else type_
 		# Append letter 's' if it's not a single object (= name not known) - only to avoid confusion...
 		type_ = type_ + 's' if name is None and type_[-1] != "s" else type_
@@ -121,9 +123,11 @@ class Query(APIRequest):
 			name = kwargs["name"]
 			del kwargs["name"]
 
-		# Get a request object
-		request = self.request()
-		return self.api.object_from_query(type_, request, name, **kwargs)
+		# Distinct between objects and results
+		if basetype == "objects":
+			return self.api.object_from_query(type_, request, name, **kwargs)
+		else:
+			return self.api.cached_results_from_query(request, **kwargs)
 
 
 class APIResponse(Response):

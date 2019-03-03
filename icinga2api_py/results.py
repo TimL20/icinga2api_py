@@ -314,7 +314,8 @@ class Result(ResultSet, collections.abc.Mapping):
 		results = results if isinstance(results, collections.abc.Sequence) or results is None else (results,)
 		ResultSet.__init__(self, results)
 
-	def result(self, index=0):
+	def result(self, index):
+		"""Get the result. As a object of the Result class is a result, this method always returns self."""
 		return self
 
 	@staticmethod
@@ -345,5 +346,5 @@ class Result(ResultSet, collections.abc.Mapping):
 
 	def __iter__(self):
 		"""Iterate of the "sequence" item (this one and only object).
-		This is not useful for this class, but to avoid trouble caused by the inheritance structure."""
+		This is not useful for this class, but to avoid trouble caused by inheriting of Sequence."""
 		yield self

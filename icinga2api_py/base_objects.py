@@ -115,10 +115,10 @@ class Icinga2Object(Result, Icinga2Objects):
 		:param cache_time Caching time in seconds.
 		:param response Optional response from this request if already loaded.
 		:param results Optional the one results object (represented) from a appropriate request if already loaded."""
-		# Call super init of Result
-		super().__init__(results)
-		# Call other super init
+		# Call other super init first
 		Icinga2Objects.__init__(self, request, cache_time, response, results)
+		# Call super init of Result, overwrite results
+		super().__init__(results)
 		self.name = name
 
 	def result_as(self, index, class_):

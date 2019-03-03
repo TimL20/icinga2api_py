@@ -3,7 +3,7 @@
 
 from .api import API
 from .models import Query, APIResponse
-from .results import ResultsFromResponse, ResultsFromRequest
+from .results import ResultsFromResponse, CachedResultSet
 from .base_objects import Icinga2Objects, Icinga2Object
 from . import objects
 
@@ -33,8 +33,9 @@ class Icinga2(API):
 
 	@staticmethod
 	def results_from_query(request):
-		"""Returns a ResultsFromRequest with the given request."""
-		return ResultsFromRequest(request)
+		"""Returns a ResultsFromResponse from the given request."""
+		# Transformation to APIRequest is done by API.create_response (inherited)
+		return ResultsFromResponse(request())
 
 	def object_from_query(self, type_, request, name=None, **kwargs):
 		"""Get a appropriate python object to represent whatever is requested with the request.
@@ -52,6 +53,12 @@ class Icinga2(API):
 			# it's one object if it has a name
 			return Icinga2Object(request, **initargs)
 		return Icinga2Objects(request, **initargs)
+
+	def cached_results_from_query(self, request, **kwargs):
+		"""Get a CachedResultSet with the given request. Remaining kwargs are passed to the constructor."""
+		initargs = {"cache_time": self.cache_time}
+		initargs.update(kwargs)
+		return CachedResultSet(request, **initargs)
 
 	def create_object(self, type_, name, attrs, templates=tuple(), ignore_on_error=False):
 		"""Create an Icinga2 object through the API."""
