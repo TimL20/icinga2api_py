@@ -2,7 +2,7 @@
 """This module will contain almost all of the different Icinga2 API clients."""
 
 from .api import API
-from .models import Query, APIResponse
+from .models import Query, APIResponse, APIRequest
 from .results import ResultsFromResponse, CachedResultSet
 from .base_objects import Icinga2Objects, Icinga2Object
 from . import objects
@@ -25,11 +25,20 @@ class Icinga2(API):
 		super().__init__(url, **sessionparams)
 		self.cache_time = cache_time
 		self.request_class = Query
-		self._client = None
 
 	def client(self):
-		"""Get non-OOP interface client. This is done by calling clone() of super()."""
-		return Client.clone(self)
+		"""Get non-OOP interface client."""
+		client = Client.clone(self)
+		client.create_response = Client.create_response
+		client.request_class = APIRequest
+		return client
+
+	def api(self):
+		"""Get basic API client."""
+		api = API.clone(self)
+		api.create_response = API.create_response
+		api.request_class = APIRequest
+		return api
 
 	@staticmethod
 	def results_from_query(request):

@@ -120,11 +120,3 @@ class Icinga2Object(Result, Icinga2Objects):
 		# Call super init of Result, overwrite results
 		super().__init__(results)
 		self.name = name
-
-	def result_as(self, index, class_):
-		"""Overriding result_as from Icinga2Object to always return the object at index 0."""
-		return Icinga2Objects.result_as(self, 0, class_)
-
-	def result(self, index=0):
-		"""Return plain result."""
-		return self.result_as(0, Result)

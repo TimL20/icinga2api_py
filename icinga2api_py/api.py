@@ -38,10 +38,11 @@ class API(requests.Session):
 	@classmethod
 	def clone(cls, obj):
 		sessionparams = {}
-		for attr in obj.__atrrs__:
+		for attr in obj.__attrs__:
 			sessionparams[attr] = getattr(obj, attr, None)
 		api = cls(obj.base_url, **sessionparams)
 		api.request_class = obj.request_class
+		api.create_response = obj.create_response
 		return api
 
 	def __getattr__(self, item):

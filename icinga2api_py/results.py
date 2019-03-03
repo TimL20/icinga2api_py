@@ -315,7 +315,10 @@ class Result(ResultSet, collections.abc.Mapping):
 		ResultSet.__init__(self, results)
 
 	def result(self, index):
-		"""Get the result. As a object of the Result class is a result, this method always returns self."""
+		"""Get the result. As a object of the Result class is a result, this method returns self or raises an IndexError."""
+		if isinstance(index, int) and index >= len(self):
+			# It's a sized container...
+			raise IndexError
 		return self
 
 	@staticmethod
@@ -339,6 +342,19 @@ class Result(ResultSet, collections.abc.Mapping):
 			return ret
 		except (KeyError, ValueError):
 			raise KeyError("No such key: {}".format(item))
+
+	def __contains__(self, key):
+		"""Whether there is a value for the given key."""
+		try:
+			self[key]
+		except (KeyError, IndexError):
+			return False
+		else:
+			return True
+
+	# TODO implement keys() // KeysView does not work because it uses yield from (-> __iter__ yields always self)
+
+	# TODO implement items() and values(), those fail completely
 
 	def __len__(self):
 		"""Length of this sequence - this is always 1."""
