@@ -209,8 +209,11 @@ class ResultsFromRequest(ResultSet):
 
 
 class CachedResultSet(ResultsFromRequest):
-	"""ResultSet from a request with caching."""
-	def __init__(self, request, cache_time, response=None, results=None):
+	"""ResultSet from a request with caching. Note that actions like iterating over a CachedResultSet should be aware of
+	the fact, that the underlying data can change at any time.
+	You can hold to temporarily disable cache reloading and drop to re-enable caching after hold.
+	A CachedResultSet also won't reload on cache expiry if used as a context manager (just "with cachedresultset:...")"""
+	def __init__(self, request, cache_time, response=None, results=None, next_cache_expiry=None):
 		"""ResultSet from Request with caching.
 		:param request The request returning the represented results
 		:param cache_time Cache expiry time in seconds
@@ -220,7 +223,7 @@ class CachedResultSet(ResultsFromRequest):
 		self._response = response
 		self._results = results
 		self._expiry = cache_time
-		self._expires = cache_time
+		self._expires = next_cache_expiry or cache_time
 		self._hold = None
 
 	@property
@@ -232,8 +235,9 @@ class CachedResultSet(ResultsFromRequest):
 
 	def load(self):
 		"""Reset cache expiry time and (re-)load response."""
-		self._expires = time.time() + self._expiry
+		self._response = None
 		super().load()
+		self._expires = time.time() + self._expiry
 
 	@property
 	def results(self):
@@ -266,6 +270,7 @@ class CachedResultSet(ResultsFromRequest):
 	def hold(self):
 		"""Set cache expiry to infinite to suppress reload by cache expiry.
 		Call drop() to undo this, the old cache expiry value is stored until drop."""
+		# TODO thinking: maybe a better solution would be to return a (per definition fixed) ResultSet
 		if self.held:
 			raise ValueError("Cannot hold twice.")
 
@@ -294,6 +299,10 @@ class CachedResultSet(ResultsFromRequest):
 
 class ResultList(ResultSet, collections.abc.MutableSequence):
 	"""Mutable results representation, with all nice features of ResultSet."""
+	def __init__(self, results=None):
+		super().__init__(None)
+		self._results = [] if results is None else list(results)
+
 	def __delitem__(self, index):
 		del self.results[index]
 
