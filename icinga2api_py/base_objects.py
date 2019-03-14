@@ -29,7 +29,13 @@ class Icinga2Objects(CachedResultSet):
 
 		if isinstance(index, slice):
 			# Icinga2ObjectList with object of class_
-			return Icinga2ObjectList([class_(obj) for obj in super().results[index]])
+			ret = Icinga2ObjectList()
+			for obj in super().result(index):
+				# Build request
+				req = self._request.clone()
+				req.json = {"filter": "{}.name==\"{}\"".format(obj["type"], obj["name"])}
+				ret.append(class_(req, obj["name"], self.cache_time, results=obj, next_cache_expiry=self._expires))
+			return ret
 
 		# Get result object
 		res = super().result(index)
@@ -99,7 +105,7 @@ class Icinga2ObjectList(ResultList):
 	Icinga2Objects they are handled as one results list from a request/response.
 	This way it's possible to add objects to a Icinga2ObjectList.
 	On the other hand, operations (actions, modify, delete) must be handled for every single object.
-	A Icinga2ObjectList is built on slicing a Icinga2Objects object."""
+	A Icinga2ObjectList is built e.g. on slicing a Icinga2Objects object, or by creating it and adding objects."""
 
 
 class Icinga2Object(Result, Icinga2Objects):

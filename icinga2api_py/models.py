@@ -48,6 +48,13 @@ class APIRequest(Request):
 			setattr(request, attr, val)
 		return request
 
+	def __eq__(self, other):
+		"""True if all attributes of these two APIRequests are the same."""
+		for attr in self.attrs:
+			if not getattr(self, attr, None) == getattr(other, attr, None):
+				return False
+		return True
+
 	def prepare(self):
 		"""Construct a requests.PreparedRequest with the API (client) session."""
 		return self.api.prepare_request(self)
@@ -135,6 +142,11 @@ class APIResponse(Response):
 	def __init__(self, response):
 		super().__init__()
 		self.__setstate__(response.__getstate__())
+
+	def __eq__(self, other):
+		if not isinstance(other, Response):
+			return NotImplemented
+		return self.__getstate__() == other.__getstate__()
 
 	def json(self, **kwargs):
 		"""JSON encoded content of the response (if any). Returns None on error."""

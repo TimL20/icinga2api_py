@@ -48,6 +48,17 @@ class ResultSet(collections.abc.Sequence):
 		"""Return True if results are loaded and there are results."""
 		return self.loaded and bool(self.results)
 
+	def __eq__(self, other):
+		"""NotImplemented if the other is not a ResultSet; True if all results are equal."""
+		if not isinstance(other, ResultSet):
+			return NotImplemented
+		if len(self) != len(other):
+			return False
+		for i in range(len(self)):
+			if self.results[i] != other.results[i]:
+				return False
+		return True
+
 	def __str__(self):
 		"""Return short string representation."""
 		res = "?" if not self.loaded else "no" if not len(self) else len(self)
@@ -202,6 +213,12 @@ class ResultsFromRequest(ResultSet):
 		"""True if a successful load has taken place."""
 		return self._response is not None and self._results is not None
 
+	def __eq__(self, other):
+		"""True if other is also a ResultsFromRequest object and they both have the same request."""
+		if not isinstance(other, ResultsFromRequest):
+			return NotImplemented
+		return self._request == other._request
+
 	def __str__(self):
 		"""Return short string representation."""
 		res = "?" if not self.loaded else "no" if not len(self) else len(self)
@@ -267,10 +284,14 @@ class CachedResultSet(ResultsFromRequest):
 		self._response = None
 		self._results = None
 
+	def fixed(self):
+		"""Get a ResultSet with the results currently loaded. This is in some situations better than the hold mechanism,
+		althought the purpose is very similar."""
+		return ResultSet(self.results)
+
 	def hold(self):
 		"""Set cache expiry to infinite to suppress reload by cache expiry.
 		Call drop() to undo this, the old cache expiry value is stored until drop."""
-		# TODO thinking: maybe a better solution would be to return a (per definition fixed) ResultSet
 		if self.held:
 			raise ValueError("Cannot hold twice.")
 
@@ -303,13 +324,26 @@ class ResultList(ResultSet, collections.abc.MutableSequence):
 		super().__init__(None)
 		self._results = [] if results is None else list(results)
 
+	def _check_type(self, value):
+		"""Raise exception for illegal type."""
+		if not isinstance(value, Result):
+			raise TypeError("Value in ResultList must be a result.")
+
+	def result(self, index):
+		"""Return result at the given index, or a ResultSet."""
+		if isinstance(index, slice):
+			return ResultList(self.results[index])
+		return self.results[index]
+
 	def __delitem__(self, index):
 		del self.results[index]
 
 	def __setitem__(self, index, value):
+		self._check_type(value)
 		self.results[index] = value
 
 	def insert(self, index, value):
+		self._check_type(value)
 		self.results.insert(index, value)
 
 
@@ -361,9 +395,23 @@ class Result(ResultSet, collections.abc.Mapping):
 		else:
 			return True
 
-	# TODO implement keys() // KeysView does not work because it uses yield from (-> __iter__ yields always self)
+	def keys(self):
+		"""A set-like object providing a view on the Results keys."""
+		return collections.abc.KeysView(self.results[0])
 
-	# TODO implement items() and values(), those fail completely
+	def items(self):
+		"""A set-like object providing a view on D's items."""
+		return collections.abc.ItemsView(self.results[0])
+
+	def values(self, attr=None, raise_nokey=False, nokey_value=None):
+		"""Return all values of the given attribute as list.
+		:param attr Attribute (usually as a string) - or None to get a complete ValuesView of the Result mapping items.
+		:param raise_nokey True to immediately reraise catched KeyError
+		:param nokey_value Value to put in for absent keys (if KeyErrors are not raised)."""
+		if attr is None:
+			return collections.abc.ValuesView(self.results[0])
+		else:
+			return ResultSet.values(self, attr, raise_nokey, nokey_value)
 
 	def __len__(self):
 		"""Length of this sequence - this is always 1."""
