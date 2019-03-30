@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """This module will contain almost all of the different Icinga2 API clients."""
 
+import json
 from .api import API
 from .models import Query, APIResponse, APIRequest
-from .results import ResultsFromResponse, CachedResultSet
+from .results import ResultsFromResponse, CachedResultSet, Result
 from .base_objects import Icinga2Objects, Icinga2Object
 from . import objects
 
@@ -17,6 +18,41 @@ class Client(API):
 	def create_response(response):
 		"""Return ResultSet with APIResponse with given response."""
 		return ResultsFromResponse(APIResponse(response))
+
+
+class StreamClient(API):
+	"""Icinga2 API client for streamed content."""
+	def __init__(self, url, **sessionparams):
+		sessionparams["stream"] = True
+		super().__init__(url, **sessionparams)
+
+	@staticmethod
+	def create_response(response):
+		"""APIResponse doesn't work here, because it uses __getstate__, which waits forever."""
+		return StreamClient.ResponseStream(response)
+
+	class ResponseStream:
+		"""Return Result objects for streamed lines."""  # TODO add to documentation
+		def __init__(self, response):
+			self._response = response
+
+		def __iter__(self):
+			for line in self._response.iter_lines():
+				if line:
+					res = json.loads(line)
+					yield Result((res, ))
+
+		def close(self):
+			"""Close stream connection."""
+			self._response.close()
+
+		def __enter__(self):
+			"""Usage as an context manager closes the stream connection automatically."""
+			return self
+
+		def __exit__(self, exc_type, exc_val, exc_tb):
+			"""Usage as an context manager closes the stream connection automatically."""
+			self.close()
 
 
 class Icinga2(API):
