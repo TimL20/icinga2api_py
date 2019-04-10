@@ -157,6 +157,7 @@ class APIResponse(Response):
 			return None
 
 	def results(self, **kwargs):
+		"""Return a sequence for the results (values of "results" in the response data parsed as JSON)."""
 		try:
 			data = self.json(**kwargs)
 			return tuple(data["results"])
@@ -164,3 +165,8 @@ class APIResponse(Response):
 			return tuple()
 		except TypeError:
 			raise exceptions.InvalidIcinga2ApiResponseError()
+
+	def __str__(self):
+		"""Simple string representation."""
+		status = "{} ({})".format(self.status_code, self.reason) if self.reason else self.status_code
+		return "<{} {} from {}>".format(self.__class__.__name__, status, self.url)

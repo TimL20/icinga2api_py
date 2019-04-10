@@ -10,7 +10,8 @@ Simple access to the Icinga2 API on top of Python [requests](https://github.com/
 - Easy, object oriented access to all results
 - Modify and delete objects, also multiple objects at once
 - Actions (acknowledge, ...), also for multiple objects at once
-- Everything except streams is somehow possible
+- Receive easy-to-use objects from event streams
+- Everything with the Icinga 2 API is somehow possible
 
 ## Usage examples
 
@@ -30,7 +31,6 @@ print(", ".join(localhost.services.values("name")))
 
 ## Notice, that ...
 - ... knowledge of the Icinga2 API is recommended
-- ... any streams (EventStreams) are currently not supported
 - ... Python 3 is required
 - ... as soon as I think it's a bit stable, I will put it on pypi (for easy pip installation);
  and it will get a version number >1.0 as soon as it's really stable. Both things haven't happen yet.
@@ -44,4 +44,4 @@ Clone this repository and install via setup.py, for example like this:
  $ python setup.py install
  ```
 
-The branch dev tends to have more features, better usability and more bugs.
+Development takes place on the dev branch.

@@ -28,15 +28,17 @@ class StreamClient(API):
 
 	@staticmethod
 	def create_response(response):
-		"""APIResponse doesn't work here, because it uses __getstate__, which waits forever."""
+		"""APIResponse doesn't work here, because it uses __getstate__, which waits until the whole content is consumed
+		- something that propably does never happen in this case."""
 		return StreamClient.ResponseStream(response)
 
 	class ResponseStream:
-		"""Return Result objects for streamed lines."""  # TODO add to documentation
+		"""Return Result objects for streamed lines."""
 		def __init__(self, response):
 			self._response = response
 
 		def __iter__(self):
+			"""Yield Result objects for every line received."""
 			for line in self._response.iter_lines():
 				if line:
 					res = json.loads(line)
@@ -47,11 +49,11 @@ class StreamClient(API):
 			self._response.close()
 
 		def __enter__(self):
-			"""Usage as an context manager closes the stream connection automatically."""
+			"""Usage as an context manager closes the stream connection automatically on exit."""
 			return self
 
 		def __exit__(self, exc_type, exc_val, exc_tb):
-			"""Usage as an context manager closes the stream connection automatically."""
+			"""Usage as an context manager closes the stream connection automatically on exit."""
 			self.close()
 
 

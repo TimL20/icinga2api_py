@@ -13,7 +13,7 @@ import requests
 from .models import APIRequest, APIResponse
 
 # Accepted HTTP methods
-HTTP_METHODS = ('GET', 'POST', 'PUT', 'DELETE')
+HTTP_METHODS = {'GET', 'POST', 'PUT', 'DELETE'}
 
 
 class API(requests.Session):

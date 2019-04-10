@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 This module contains all relevant stuff regarding the results attribute of an Icinga2 API response.
-Very similar to the module models.
 """
 
 import collections.abc
@@ -11,7 +10,7 @@ import time
 class ResultSet(collections.abc.Sequence):
 	"""Represents a set of results returned from the Icinga2 API."""
 	def __init__(self, results=None):
-		"""Construct a ResultSet with an APIResponse."""
+		"""Construct a ResultSet with a results sequence or None."""
 		self._results = results
 
 	def load(self):
@@ -20,7 +19,7 @@ class ResultSet(collections.abc.Sequence):
 
 	@property
 	def results(self):
-		"""All results as a ("naked") sequnce. Meant for internal use."""
+		"""All results as a ("naked") sequence. Meant for internal use."""
 		if self._results is None:
 			self.load()
 		return self._results
@@ -31,17 +30,17 @@ class ResultSet(collections.abc.Sequence):
 		return self._results is not None
 
 	def result(self, index):
-		"""Return result at the given index, or a ResultSet."""
+		"""Return result at the given index, or an appropriate ResultSet for a slice."""
 		if isinstance(index, slice):
 			return ResultSet(self.results[index])
 		return Result(self.results[index])
 
 	def __getitem__(self, index):
-		"""Return one result at given index, or a ResultSet."""
+		"""Return result at the given index, or an appropriate ResultSet for a slice."""
 		return self.result(index)
 
 	def __len__(self):
-		"""Length of the result sequence."""
+		"""Length of the results sequence."""
 		return len(self.results)
 
 	def __bool__(self):
@@ -123,29 +122,27 @@ class ResultSet(collections.abc.Sequence):
 	def are_all(self, attr, expected):
 		"""Return True if all attributes have an expected value."""
 		attr = Result.parseAttrs(attr)
-		keyerror = expected == KeyError
 		for r in self.results:
 			for key in attr:
 				try:
 					r = r[key]
 				except (KeyError, TypeError):
-					if not keyerror:
-						return False
-			if r != expected and not keyerror:
+					r = KeyError
+					break
+			if r != expected:
 				return False
 		return True
 
 	def min_one(self, attr, expected):
 		"""Return True if minimum one attribute has an expected value"""
 		attr = Result.parseAttrs(attr)
-		keyerror_expected = expected == KeyError
 		for r in self.results:
 			for key in attr:
 				try:
 					r = r[key]
 				except (KeyError, TypeError):
-					if keyerror_expected:
-						return True
+					r = KeyError
+					break
 			if r == expected:
 				return True
 		return False
@@ -364,6 +361,11 @@ class Result(ResultSet, collections.abc.Mapping):
 			raise IndexError
 		return self
 
+	@property
+	def _raw(self):
+		"""Get the "raw" result as a dictionary. Meant for internal use only."""
+		return self.results[0]
+
 	@staticmethod
 	def parseAttrs(attrs):
 		"""Split attrs on dots, return attrs if it's not a string."""
@@ -379,7 +381,7 @@ class Result(ResultSet, collections.abc.Mapping):
 
 		# Mapping access
 		try:
-			ret = self.results[0]
+			ret = self._raw
 			for item in self.parseAttrs(item):
 				ret = ret[item]
 			return ret
@@ -397,11 +399,11 @@ class Result(ResultSet, collections.abc.Mapping):
 
 	def keys(self):
 		"""A set-like object providing a view on the Results keys."""
-		return collections.abc.KeysView(self.results[0])
+		return collections.abc.KeysView(self._raw)
 
 	def items(self):
 		"""A set-like object providing a view on D's items."""
-		return collections.abc.ItemsView(self.results[0])
+		return collections.abc.ItemsView(self._raw)
 
 	def values(self, attr=None, raise_nokey=False, nokey_value=None):
 		"""Return all values of the given attribute as list.
@@ -409,7 +411,7 @@ class Result(ResultSet, collections.abc.Mapping):
 		:param raise_nokey True to immediately reraise catched KeyError
 		:param nokey_value Value to put in for absent keys (if KeyErrors are not raised)."""
 		if attr is None:
-			return collections.abc.ValuesView(self.results[0])
+			return collections.abc.ValuesView(self._raw)
 		else:
 			return ResultSet.values(self, attr, raise_nokey, nokey_value)
 
