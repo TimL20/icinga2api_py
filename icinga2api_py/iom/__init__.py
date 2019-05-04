@@ -9,3 +9,4 @@ The object mapping access should also be capable of modifying objects as known f
 as well as getting the objects from Icinga, is done by the objects module."""
 
 from .types import Types
+from .session import Session

@@ -21,12 +21,12 @@ class Types(CachedResultSet):
 		# Duration does not appear over API(?)
 	}
 
-	def __init__(self, iclient):
+	def __init__(self, session):
 		"""Load all Icinga object types and setup creating them in classes.
 		It's assumed, that the object type definitions do not change, so the cache time is set to never expire.
 		Even if the data were loaded newly, the changes would only appear in newly created objects/classes."""
-		super().__init__(iclient.api().types.get, float("inf"))
-		self.iclient = iclient
+		super().__init__(session.api().types.get, float("inf"))
+		self.iclient = session
 
 		self._lock = threading.Lock()
 
@@ -78,8 +78,7 @@ class Types(CachedResultSet):
 				# -> TODO Icinga issue
 				parent = IcingaObject
 
-			namespace = {"__module__": self.__class__.__module__}
-			# TODO add fields and their types to the namespace
+			namespace = {"__module__": self.__class__.__module__, "DESC": type_desc}
 			# TODO more namespace(?)
 
 			# Create the class and store in the _classes dict to prevent creating it again
