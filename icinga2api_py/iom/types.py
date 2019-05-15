@@ -28,7 +28,7 @@ class Types(CachedResultSet):
 		super().__init__(session.api().types.get, float("inf"))
 		self.iclient = session
 
-		self._lock = threading.Lock()
+		self._lock = threading.RLock()
 
 		# Created type classes
 		self._classes = {}
@@ -41,34 +41,38 @@ class Types(CachedResultSet):
 		if isinstance(item, int) or isinstance(item, slice):
 			return super().result(item)
 
-		# Search for type with this name
+		# Search for type with this name (all lowercase)
+		typename = item.lower()
 		for type_desc in self:
-			if type_desc["name"] == item:
+			if type_desc["name"].lower() == typename:
 				return Result(type_desc), True
-			if type_desc["plural_name"] == item:
+			if type_desc["plural_name"].lower() == typename:
 				return Result(type_desc), False
 
 		# Not found
-		raise KeyError("Found no such type")
+		raise KeyError("Found no such type: {}".format(item))
 
 	def type(self, item):
 		"""Get an Icinga object type by its name. Both singular and plural names are accepted."""
 		with self._lock:
 			if item in self._classes:
 				return self._classes[item]
+			# Get type description from Icinga API
 			type_desc, singular = self[item]
+			# All fields for this type (also fields of base classes)
+			fields = {}
 			for name, desc in type_desc["fields"].items():
 				try:
 					if desc["type"] not in self.ICINGA_PYTHON_TYPES.values():
 						desc["type"] = self.ICINGA_PYTHON_TYPES[desc["type"]]
 				except KeyError:
 					try:
-						desc["type"] = getattr(self, desc["type"])
-						if desc["type"] is None:
-							raise
+						# Value type can be a type described in types
+						desc["type"] = self.type(desc["type"])
 					except (KeyError, ValueError, AttributeError):
 						raise ValueError("Icinga object type {}: field {} has an unknown value type: {}".format(
 							item, name, desc["type"]))
+				fields[name] = desc
 
 			try:
 				parent = self.type(type_desc["base"])
@@ -78,10 +82,17 @@ class Types(CachedResultSet):
 				# -> TODO Icinga issue
 				parent = IcingaObject
 
-			namespace = {"__module__": self.__class__.__module__, "DESC": type_desc}
+			# Merge fields of parent class into own fields
+			fields.update(parent.FIELDS)
+			# Namespace for dynamically created class
+			namespace = {
+				"__module__": self.__class__.__module__,
+				"DESC": type_desc,
+				"FIELDS": fields,
+			}
 			# TODO more namespace(?)
 
 			# Create the class and store in the _classes dict to prevent creating it again
-			ret = type(item, (parent,), namespace)
+			ret = type(item.title(), (parent,), namespace)
 			self._classes[item] = ret
 			return ret

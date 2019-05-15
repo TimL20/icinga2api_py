@@ -14,6 +14,8 @@ class IcingaObject(CachedResultSet):
 
 	# The DESC is overriden in subclasses with the Icinga type description
 	DESC = {}
+	# The FIELDS is override in subclasses with all FIELDS and their description for the object type (incl. from parents)
+	FIELDS = {}
 
 	def __init__(self, session, request):
 		super().__init__(request, session.cache_time)
@@ -23,23 +25,28 @@ class IcingaObject(CachedResultSet):
 		"""Get permission for a given attribute (field), returned as a tuple for the boolean values of:
 		no_user_view, no_user_modify
 		All values True is the default."""
-		field = self.DESC.get(attr, {"no_user_view": True, "no_user_modify": True})
+		try:
+			field = self.FIELDS[attr]["attributes"]
+		except KeyError:
+			field = {"attributes": {"no_user_view": True, "no_user_modify": True}}
 		return field.get("no_user_view", True), field.get("no_user_modify", True)
 
 	def __getattr__(self, attr):
-		if attr in self.fields:
+		if attr in self.FIELDS:
 			# Check no_user_view
 			if self.permissions(attr)[0]:
 				raise NoUserView("Not allowed to view attribute {}".format(attr))
 			# TODO refactor that later (?)
-			return self[0][attr]
+			# TODO how to reach joins now?
+			# TODO explicit type instead of attrs? (would solve joins problem)
+			return self[0]["attrs"][attr]
 
 		# attribute not in fields
 		raise AttributeError
 
 	def __setattr__(self, key, value):
-		if key not in self.DESC["fields"]:
-			super().__setattr__(key, value)
+		if key not in self.FIELDS:
+			return super().__setattr__(key, value)
 
 		# Modify this object
 		self.modify({key: value})
@@ -55,16 +62,18 @@ class IcingaObject(CachedResultSet):
 		mquery = self._request.clone()
 		mquery.method_override = "POST"
 		# Copy original JSON body and overwrite attributes for modification
-		mquery.json = dict(mquery.json)["attrs"] = attrs
-		# Fire modification query
+		mquery.json = dict(mquery.json)["attrs"] = {}
+		mquery.json["attrs"] = attrs
+		# Fire modification query (returns APIResponse object)
 		ret = mquery()
 
-		# TODO If query went wrong
-		... # TODO Then return ret instantly
+		if not ret.ok:
+			# Something went wrong -> do not modify
+			return ret
 
 		# Modify cached attribute values
 		for key, value in attrs.items():
-			# TODO refactor that later (?)
-			self._results[0][key] = value
+			# TODO refactor that later (?) (maybe no "attrs"?)
+			self._results[0]["attrs"][key] = value
 
 		return ret

@@ -4,7 +4,7 @@
 
 from ..api import API
 from ..clients import Client
-from ..models import Query
+from ..models import APIRequest, Query
 from . import Types
 
 
@@ -12,6 +12,7 @@ class Session(API):
 	"""The client for getting mapped Icinga objects."""
 	def __init__(self, url, cache_time=float("inf"), **sessionparams):
 		super().__init__(url, **sessionparams)
+		self.request_class = IOMQuery
 		self.cache_time = cache_time
 		self.types = Types(self)
 
@@ -21,7 +22,10 @@ class Session(API):
 
 	def api(self):
 		"""Get most simple client (API)."""
-		return API.clone(self)
+		api = API.clone(self)
+		# TODO any way to set the default, whatever that is?
+		api.request_class = APIRequest
+		return api
 
 
 class IOMQuery(Query):
