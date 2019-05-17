@@ -6,6 +6,9 @@ This module contains all relevant stuff regarding the results attribute of an Ic
 import collections.abc
 import time
 
+# Possible keys of a objects query result
+OBJECT_QUERY_RESULT_KEYS = {"name", "type", "attrs", "joins", "meta"}
+
 
 class ResultSet(collections.abc.Sequence):
 	"""Represents a set of results returned from the Icinga2 API."""
@@ -72,7 +75,7 @@ class ResultSet(collections.abc.Sequence):
 		:param attr Attribute (usually as a string)
 		:param raise_nokey True to immediately reraise catched KeyError
 		:param nokey_value Value to put in for absent keys (if KeyErrors are not raised)."""
-		attr = Result.parseAttrs(attr)
+		attr = Result.parse_attrs(attr)
 		ret = []
 		for r in self.results:
 			for key in attr:
@@ -90,7 +93,7 @@ class ResultSet(collections.abc.Sequence):
 
 	def where(self, attr, expected):
 		"""Return list of results with expected value as attribute."""
-		attr = Result.parseAttrs(attr)
+		attr = Result.parse_attrs(attr)
 		ret = []
 		for res in self.results:
 			r = res
@@ -106,7 +109,7 @@ class ResultSet(collections.abc.Sequence):
 
 	def number(self, attr, expected):
 		"""Return number of attributes having an expected value."""
-		attr = Result.parseAttrs(attr)
+		attr = Result.parse_attrs(attr)
 		cnt = 0
 		for r in self.results:
 			for key in attr:
@@ -121,7 +124,7 @@ class ResultSet(collections.abc.Sequence):
 
 	def are_all(self, attr, expected):
 		"""Return True if all attributes have an expected value."""
-		attr = Result.parseAttrs(attr)
+		attr = Result.parse_attrs(attr)
 		for r in self.results:
 			for key in attr:
 				try:
@@ -135,7 +138,7 @@ class ResultSet(collections.abc.Sequence):
 
 	def min_one(self, attr, expected):
 		"""Return True if minimum one attribute has an expected value"""
-		attr = Result.parseAttrs(attr)
+		attr = Result.parse_attrs(attr)
 		for r in self.results:
 			for key in attr:
 				try:
@@ -149,7 +152,7 @@ class ResultSet(collections.abc.Sequence):
 
 	def min_max(self, attr, expected, min, max):
 		"""Return True if minimum *min* and maximum *max* results attributes have an expected value."""
-		attr = Result.parseAttrs(attr)
+		attr = Result.parse_attrs(attr)
 		i = 0
 		for r in self.results:
 			for key in attr:
@@ -367,12 +370,17 @@ class Result(ResultSet, collections.abc.Mapping):
 		return self.results[0]
 
 	@staticmethod
-	def parseAttrs(attrs):
-		"""Split attrs on dots, return attrs if it's not a string."""
-		if isinstance(attrs, str):
-			return attrs.split(".")
-		else:
+	def parse_attrs(attrs):
+		"""Parse attrs string. Split attrs on dots. Prefix with "attrs" if needed."""
+		if not isinstance(attrs, str):
 			return attrs
+
+		split = attrs.split('.')
+		if split[0] in OBJECT_QUERY_RESULT_KEYS:
+			return split
+
+		# First key of attrs is not one that is handled "naturally"
+		return ["attrs"] + split
 
 	def __getitem__(self, item):
 		"""Implements Mapping and sequence access in one."""
@@ -382,7 +390,7 @@ class Result(ResultSet, collections.abc.Mapping):
 		# Mapping access
 		try:
 			ret = self._raw
-			for item in self.parseAttrs(item):
+			for item in self.parse_attrs(item):
 				ret = ret[item]
 			return ret
 		except (KeyError, ValueError):

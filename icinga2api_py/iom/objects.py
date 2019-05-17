@@ -7,6 +7,7 @@ No thread-safety (yet)."""
 
 from .exceptions import NoUserView, NoUserModify
 from ..results import CachedResultSet
+from ..results import OBJECT_QUERY_RESULT_KEYS
 
 
 class IcingaObject(CachedResultSet):
@@ -21,6 +22,35 @@ class IcingaObject(CachedResultSet):
 		super().__init__(request, session.cache_time)
 		self._session = session
 
+	def parse_attrs(self, attrs):
+		"""Parse attrs string.
+		"attrs.state" -> ["attrs", "state"]
+		"name" -> ["name"]
+		"last_check_result.output" -> ["attrs", "last_check_result", "output"]
+
+		Also on a <Type, e.g. host> object:
+		"<typename>.last_check_result.output" -> ["attrs", "last_check_result", "output"]
+
+		Also on a <Type> that is in the joins dictionary:
+		"<typename>.last_check_result.output" -> ["joins", <typename>, "last_check_result", "output"]
+		"""
+		split = attrs.split('.')
+		# First key (name, type, attrs, joins, meta) - defaults to attrs
+
+		if split[0] not in OBJECT_QUERY_RESULT_KEYS:
+			# First key of attrs is not one that is handled "naturally"
+			if split[0].lower() == self[0]["type"].lower():
+				# Key is own type; cut first entry of split and insert "attrs" instead
+				return ["attrs"] + split[1:]
+			elif split[0] in self[0]["joins"]:
+				# Type in joins
+				return ["joins"] + split
+			else:
+				# Default is to insert "attrs" at the start
+				return ["attrs"] + split
+		# else
+		return split
+
 	def permissions(self, attr):
 		"""Get permission for a given attribute (field), returned as a tuple for the boolean values of:
 		no_user_view, no_user_modify
@@ -32,19 +62,18 @@ class IcingaObject(CachedResultSet):
 		return field.get("no_user_view", True), field.get("no_user_modify", True)
 
 	def __getattr__(self, attr):
-		if attr in self.FIELDS:
-			# Check no_user_view
-			if self.permissions(attr)[0]:
-				raise NoUserView("Not allowed to view attribute {}".format(attr))
-			# TODO refactor that later (?)
-			# TODO how to reach joins now?
-			# TODO explicit type instead of attrs? (would solve joins problem)
-			return self[0]["attrs"][attr]
+		attr = self.parse_attrs(attr)
+		if attr[0] == "attrs" and attr[1] not in self.FIELDS:
+			raise AttributeError
 
-		# attribute not in fields
-		raise AttributeError
+		if attr[0] == "attrs":
+			# Check no_user_view
+			if self.permissions(attr[1])[0]:
+				raise NoUserView("Not allowed to view attribute {}".format(attr))
+		return self[0][attr]
 
 	def __setattr__(self, key, value):
+		# TODO handle everything __getattr__ also handles, e.g. without "attrs" prefix
 		if key not in self.FIELDS:
 			return super().__setattr__(key, value)
 
@@ -73,7 +102,6 @@ class IcingaObject(CachedResultSet):
 
 		# Modify cached attribute values
 		for key, value in attrs.items():
-			# TODO refactor that later (?) (maybe no "attrs"?)
-			self._results[0]["attrs"][key] = value
+			self._results[0][self.parse_attrs(key)] = value
 
 		return ret
