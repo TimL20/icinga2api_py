@@ -6,9 +6,6 @@ This module contains all relevant stuff regarding the results attribute of an Ic
 import collections.abc
 import time
 
-# Possible keys of a objects query result
-OBJECT_QUERY_RESULT_KEYS = {"name", "type", "attrs", "joins", "meta"}
-
 
 class ResultSet(collections.abc.Sequence):
 	"""Represents a set of results returned from the Icinga2 API."""
@@ -198,6 +195,11 @@ class ResultsFromRequest(ResultSet):
 		self._results = None
 
 	@property
+	def request(self):
+		"""The request of this ResultsFromRequest object."""
+		return self._request
+
+	@property
 	def response(self):
 		"""Loads response with use of the request. This property is ironically called from the load method."""
 		if self._response is None:
@@ -375,12 +377,7 @@ class Result(ResultSet, collections.abc.Mapping):
 		if not isinstance(attrs, str):
 			return attrs
 
-		split = attrs.split('.')
-		if split[0] in OBJECT_QUERY_RESULT_KEYS:
-			return split
-
-		# First key of attrs is not one that is handled "naturally"
-		return ["attrs"] + split
+		return attrs.split('.')
 
 	def __getitem__(self, item):
 		"""Implements Mapping and sequence access in one."""

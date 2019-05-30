@@ -3,7 +3,7 @@
 
 import threading
 from ..results import CachedResultSet, Result
-from .objects import IcingaObject
+from .objects import IcingaObject, IcingaObjects
 
 
 class Types(CachedResultSet):
@@ -17,7 +17,7 @@ class Types(CachedResultSet):
 		"Timestamp": float,  # Maybe that should be compareable to Python datetime?
 		"Array": list,
 		"Dictionary": dict,
-		"Value": str,  # ???????????????????? # TODO check
+		"Value": str,  # ???????????????????? # TODO check // or issue?
 		# Duration does not appear over API(?)
 	}
 
@@ -80,8 +80,12 @@ class Types(CachedResultSet):
 				# No such type, or no "base" in the type descprion (second is more likely)
 				# The Icinga API doc clearly states, that base is in every type description - but this is not the case!
 				# -> TODO Icinga issue
-				parent = IcingaObject
 
+				# Always plural / TODO check if that's a good idea or a bad later
+				parent = IcingaObjects
+
+			# Classname for created class is the type name - always plural name
+			classname = type_desc["plural_name"]
 			# Merge fields of parent class into own fields
 			fields.update(parent.FIELDS)
 			# Namespace for dynamically created class
@@ -90,9 +94,8 @@ class Types(CachedResultSet):
 				"DESC": type_desc,
 				"FIELDS": fields,
 			}
-			# TODO more namespace(?)
 
 			# Create the class and store in the _classes dict to prevent creating it again
-			ret = type(item.title(), (parent,), namespace)
+			ret = type(classname, (parent,), namespace)
 			self._classes[item] = ret
 			return ret
