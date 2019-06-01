@@ -13,6 +13,9 @@ class ResultSet(collections.abc.Sequence):
 		"""Construct a ResultSet with a results sequence or None."""
 		self._results = results
 
+		# Callable to parse attrs. Defaults to that one of Result, but could be overriden in a subclass
+		self.parse_attrs = Result.parse_attrs
+
 	def load(self):
 		"""Load results into _results. It's here to be overridden."""
 		pass
@@ -72,7 +75,7 @@ class ResultSet(collections.abc.Sequence):
 		:param attr Attribute (usually as a string)
 		:param raise_nokey True to immediately reraise catched KeyError
 		:param nokey_value Value to put in for absent keys (if KeyErrors are not raised)."""
-		attr = Result.parse_attrs(attr)
+		attr = self.parse_attrs(attr)
 		ret = []
 		for r in self.results:
 			for key in attr:
@@ -90,7 +93,7 @@ class ResultSet(collections.abc.Sequence):
 
 	def where(self, attr, expected):
 		"""Return list of results with expected value as attribute."""
-		attr = Result.parse_attrs(attr)
+		attr = self.parse_attrs(attr)
 		ret = []
 		for res in self.results:
 			r = res
@@ -106,7 +109,7 @@ class ResultSet(collections.abc.Sequence):
 
 	def number(self, attr, expected):
 		"""Return number of attributes having an expected value."""
-		attr = Result.parse_attrs(attr)
+		attr = self.parse_attrs(attr)
 		cnt = 0
 		for r in self.results:
 			for key in attr:
@@ -121,7 +124,7 @@ class ResultSet(collections.abc.Sequence):
 
 	def are_all(self, attr, expected):
 		"""Return True if all attributes have an expected value."""
-		attr = Result.parse_attrs(attr)
+		attr = self.parse_attrs(attr)
 		for r in self.results:
 			for key in attr:
 				try:
@@ -135,7 +138,7 @@ class ResultSet(collections.abc.Sequence):
 
 	def min_one(self, attr, expected):
 		"""Return True if minimum one attribute has an expected value"""
-		attr = Result.parse_attrs(attr)
+		attr = self.parse_attrs(attr)
 		for r in self.results:
 			for key in attr:
 				try:
@@ -149,7 +152,7 @@ class ResultSet(collections.abc.Sequence):
 
 	def min_max(self, attr, expected, min, max):
 		"""Return True if minimum *min* and maximum *max* results attributes have an expected value."""
-		attr = Result.parse_attrs(attr)
+		attr = self.parse_attrs(attr)
 		i = 0
 		for r in self.results:
 			for key in attr:
@@ -167,9 +170,11 @@ class ResultSet(collections.abc.Sequence):
 
 class ResultsFromResponse(ResultSet):
 	"""ResultSet from a given APIResponse."""
-	def __init__(self, response):
+	def __init__(self, response, **json_kwargs):
+		"""Init ResultsFromResponse object with a response. Optional give kwargs for JSON load."""
 		super().__init__()
 		self._response = response
+		self._json_kwargs = json_kwargs
 
 	@property
 	def response(self):
@@ -178,7 +183,7 @@ class ResultsFromResponse(ResultSet):
 
 	def load(self):
 		"""Parse results of response."""
-		self._results = self.response.results()
+		self._results = self.response.results(**self._json_kwargs)
 
 	def __str__(self):
 		"""Return short string representation."""
@@ -188,11 +193,13 @@ class ResultsFromResponse(ResultSet):
 
 class ResultsFromRequest(ResultSet):
 	"""ResultSet loaded (once) on demand from a given request."""
-	def __init__(self, request):
+	def __init__(self, request, **json_kwargs):
+		"""Init ResultsFromRequest object with a request. Optional give kwargs for JSON load."""
 		super().__init__()
 		self._request = request
 		self._response = None
 		self._results = None
+		self._json_kwargs = json_kwargs
 
 	@property
 	def request(self):
@@ -208,7 +215,7 @@ class ResultsFromRequest(ResultSet):
 
 	def load(self):
 		"""Parse results of response. Calls the response property to load the response from the request."""
-		self._results = self.response.results()
+		self._results = self.response.results(**self._json_kwargs)
 
 	@property
 	def loaded(self):
@@ -352,8 +359,7 @@ class ResultList(ResultSet, collections.abc.MutableSequence):
 class Result(ResultSet, collections.abc.Mapping):
 	"""Icinga2 API request result (one from results).
 	This class appears as a sequence with length one, also if more than one result is stored in the background.
-	The inheritance from Mapping does not make a difference for that, it's just to simplify attribute access (which is
-	the whole purpose of this class)."""
+	The inheritance from Mapping does not make a difference for that."""
 	def __init__(self, results=None):
 		# Transform results into a tuple if it's not a Sequence (or None)
 		results = results if isinstance(results, collections.abc.Sequence) or results is None else (results,)
