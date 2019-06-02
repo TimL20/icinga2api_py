@@ -21,16 +21,28 @@ class IcingaObjects(CachedResultSet):
 	# The FIELDS is overriden in subclasses with all FIELDS and their description for the object type (incl. from parents)
 	FIELDS = {}
 
-	def __init__(self, session, request):
-		# TODO maybe add response and results as in CachedResultSet ?
-		super().__init__(request, session.cache_time)
+	def __init__(self, session, request, response=None, results=None, next_cache_expiry=None):
+		super().__init__(request, session.cache_time, response, results, next_cache_expiry)
 		self._session = session
 
 	def result(self, index):
 		"""Return an object representation for the object at this index of results."""
 		if isinstance(index, slice):
-			# TODO create something like a list here
-			raise TypeError("Slicing this object type is not allowed.")
+			# Get results of the objects in this slice
+			results = [super().result(i) for i in range(len(self))[index]]
+			# Get names of the objects in this slice
+			names = [res["name"] for res in results]
+			# Construct a filter for these names
+			filterstring = "{}.name==\"{}\"".format(self.type, "\" || {}.name==\"".format(self.type).join(names))
+
+			# Copy query for these objects
+			req = self._request.clone()
+			req.json = dict(req.json)
+			# Apply constructed filter and return the result of this query
+			req.json["filter"] = filterstring
+			class_ = self._session.types.type(self.type)
+			# TODO check whether that works, I'm not sure
+			return class_(self._session, req, results=results, next_cache_expiry=self._expires)
 
 		# Get result object
 		name = super().result(index)["name"]
@@ -80,8 +92,6 @@ class IcingaObjects(CachedResultSet):
 			field = {"attributes": {"no_user_view": True, "no_user_modify": True}}
 		return field.get("no_user_view", True), field.get("no_user_modify", True)
 
-	# TODO maybe implement __getattr__ ???
-
 	def __setattr__(self, key, value):
 		"""Modify object value(s) if the attribute name is a field of this object type. Otherwise default behavior."""
 		attr = self.parse_attrs(key)  # Will possibly prefix "attrs"
@@ -91,7 +101,7 @@ class IcingaObjects(CachedResultSet):
 		if attr[0] == "joins":
 			# TODO maybe handle modification of join object ???
 			raise NoUserModify(
-				"You're trying to modify a joined object. This is not allowed natively by Icinga." +
+				"You're trying to modify a joined object. This is not allowed natively by the Icinga API." +
 				"It's possibly added to this library in the future, but also not allowed here jet.")
 		elif attr[0] != "attrs":
 			raise NoUserModify("Not allowed to modify attribute {}. Not an attribute.".format(key))
@@ -136,6 +146,12 @@ class IcingaObject(Result, IcingaObjects):
 	# The FIELDS is override in subclasses with all FIELDS and their description for the object type (incl. from parents)
 	FIELDS = {}
 
+	def __init__(self, session, request, response=None, results=None, next_cache_expiry=None):
+		# Call other super init first
+		IcingaObjects.__init__(self, session, request, response, results, next_cache_expiry)
+		# Call super init of Result, overwrites results
+		super().__init__(results)
+
 	@property
 	def name(self):
 		"""The name of this object."""
@@ -170,31 +186,25 @@ class IcingaObject(Result, IcingaObjects):
 		# else
 		return split
 
-	def __getattr__(self, attr):
-		# TODO handle dictionaries
-		attr = self.parse_attrs(attr)
-		if attr[0] == "attrs" and attr[1] not in self.FIELDS:
-			raise AttributeError
+	def __getitem__(self, item):
+		"""Implements sequence and mapping access in one."""
+		if isinstance(item, (int, slice)):
+			super().__getitem__(item)
 
+		# Mapping access
+		attr = self.parse_attrs(item)
 		if attr[0] == "attrs":
 			# Check no_user_view
 			if self.permissions(attr[1])[0]:
 				raise NoUserView("Not allowed to view attribute {}".format(attr))
-		return self[0][attr]
+		# TODO handle dictionaries - should be possible over the "object_hook" of JSONDecoder
+		return super().__getitem__(attr)
 
-	def __setattr__(self, key, value):
-		# TODO maybe remove this method in favour of the same method of the parent class ?
-		attr = self.parse_attrs(key)  # Will possibly prefix "attrs"
-		if attr[1] not in self.FIELDS:
-			return super().__setattr__(key, value)
+	def __getattr__(self, attr):
+		"""Get value of a field."""
+		attr = self.parse_attrs(attr)
+		if attr[0] == "attrs" and attr[1] not in self.FIELDS:
+			raise AttributeError
 
-		if attr[0] == "joins":
-			# TODO handle modification of join object
-			raise NoUserModify(
-				"You're trying to modify a joined object. This is not allowed natively by Icinga." +
-				"It's possibly added to this library in the future, but also not allowed here jet.")
-		elif attr[0] != "attrs":
-			raise NoUserModify("Not allowed to modify attribute {}. Not an attribute.".format(key))
-		else:
-			# Modify this object
-			self.modify({".".join(attr[1:]): value})
+		# Mapping access - let __getitem__ do the real work
+		return self[attr]
