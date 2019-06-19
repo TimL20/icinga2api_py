@@ -1,9 +1,17 @@
 # -*- coding: utf-8 -*-
 """This module is for creating the Icinga object types as Python classes."""
 
+import enum
 import threading
 from ..results import CachedResultSet, Result
 from .objects import IcingaObject, IcingaObjects
+
+
+class Number(enum.Enum):
+	"""Whether a type should be in singular or plural form. Or not specified (irrelevant)."""
+	SINGULAR = 1
+	PLURAL = 2
+	IRRELEVANT = 0
 
 
 class Types(CachedResultSet):
@@ -28,6 +36,7 @@ class Types(CachedResultSet):
 		super().__init__(session.api().types.get, float("inf"))
 		self.iclient = session
 
+		# Lock to make type creation thread-safe, althought the whole library is not guaranteed to be
 		self._lock = threading.RLock()
 
 		# Created type classes
@@ -52,8 +61,9 @@ class Types(CachedResultSet):
 		# Not found
 		raise KeyError("Found no such type: {}".format(item))
 
-	def type(self, item):
-		"""Get an Icinga object type by its name. Both singular and plural names are accepted."""
+	def type(self, item, number=Number.IRRELEVANT):
+		"""Get an Icinga object type by its name. Both singular and plural names are accepted.
+		A class for this type is returned. It's possible to specify whether to return the singular or the plural type."""
 		with self._lock:
 			if item in self._classes:
 				return self._classes[item]
@@ -68,24 +78,24 @@ class Types(CachedResultSet):
 				except KeyError:
 					try:
 						# Value type can be a type described in types
-						desc["type"] = self.type(desc["type"])
+						desc["type"] = self.type(desc["type"], Number.SINGULAR)
 					except (KeyError, ValueError, AttributeError):
 						raise ValueError("Icinga object type {}: field {} has an unknown value type: {}".format(
 							item, name, desc["type"]))
 				fields[name] = desc
 
 			try:
-				parent = self.type(type_desc["base"])
+				parent = self.type(type_desc["base"], number)
 			except KeyError:
 				# No such type, or no "base" in the type descprion (second is more likely)
 				# The Icinga API doc clearly states, that base is in every type description - but this is not the case!
 				# -> TODO Icinga issue
 
-				# Always plural / TODO check if that's a good idea or a bad later
-				parent = IcingaObjects
+				# Parent class
+				parent = IcingaObject if number == Number.SINGULAR else IcingaObjects
 
-			# Classname for created class is the type name - always plural name
-			classname = type_desc["plural_name"]
+			# Classname for created class is the type name
+			classname = type_desc["name"] if number == Number.SINGULAR else type_desc["plural_name"]
 			# Merge fields of parent class into own fields
 			fields.update(parent.FIELDS)
 			# Namespace for dynamically created class

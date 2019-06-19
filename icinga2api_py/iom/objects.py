@@ -7,6 +7,7 @@ No thread-safety (yet)."""
 
 from .exceptions import NoUserView, NoUserModify
 from ..results import Result, CachedResultSet
+from .types import Number
 
 # Possible keys of an objects query result
 OBJECT_QUERY_RESULT_KEYS = {"name", "type", "attrs", "joins", "meta"}
@@ -28,29 +29,34 @@ class IcingaObjects(CachedResultSet):
 	def result(self, index):
 		"""Return an object representation for the object at this index of results."""
 		if isinstance(index, slice):
-			# Get results of the objects in this slice
-			results = [super().result(i) for i in range(len(self))[index]]
-			# Get names of the objects in this slice
-			names = [res["name"] for res in results]
-			# Construct a filter for these names
-			filterstring = "{}.name==\"{}\"".format(self.type, "\" || {}.name==\"".format(self.type).join(names))
+			# Return plural type for slice
+			number = Number.PLURAL
+		else:
+			# Not a slice -> convert to slice for simplification
+			index = slice(index, index + 1)
+			# Return singular type
+			number = Number.SINGULAR
 
-			# Copy query for these objects
-			req = self._request.clone()
-			req.json = dict(req.json)
-			# Apply constructed filter and return the result of this query
-			req.json["filter"] = filterstring
-			class_ = self._session.types.type(self.type)
-			# TODO check whether that works, I'm not sure
-			return class_(self._session, req, results=results, next_cache_expiry=self._expires)
+		# Get results of the objects in this slice
+		results = [super().result(i) for i in range(len(self))[index]]
+		# Get names of the objects in this slice
+		names = [res["name"] for res in results]
+		# Construct a filter for these names
+		# TODO check how that works for objects with composite names (e.g. services)
+		filterstring = "{}.name==\"{}\"".format(self.type, "\" || {}.name==\"".format(self.type).join(names))
 
-		# Get result object
-		name = super().result(index)["name"]
-		return self._session.objects.s(self.type.lower()).s(name).get()
+		# Copy query for these objects
+		req = self._request.clone()
+		req.json = dict(req.json)
+		# Apply constructed filter and return the result of this query
+		req.json["filter"] = filterstring
+		class_ = self._session.types.type(self.type, number)
+		# TODO check whether that works, I'm not sure
+		return class_(self._session, req, results=results, next_cache_expiry=self._expires)
 
 	@property
 	def type(self):
-		"""The type of this/these object(s)"""
+		"""The type of this/these object(s). Always returns the singular name."""
 		return self.DESC["name"]
 
 	def parse_attrs(self, attrs):
@@ -73,7 +79,7 @@ class IcingaObjects(CachedResultSet):
 			if split[0].lower() == self.type.lower():
 				# Key is own type; cut first entry of split and insert "attrs" instead
 				return ["attrs"] + split[1:]
-			elif split[0] in self._request.json["joins"]:
+			elif split[0] in self._request.json.get("joins", tuple()):
 				# Type in joins
 				return ["joins"] + split
 			else:
@@ -99,10 +105,7 @@ class IcingaObjects(CachedResultSet):
 			return super().__setattr__(key, value)
 
 		if attr[0] == "joins":
-			# TODO maybe handle modification of join object ???
-			raise NoUserModify(
-				"You're trying to modify a joined object. This is not allowed natively by the Icinga API." +
-				"It's possibly added to this library in the future, but also not allowed here jet.")
+			raise NoUserModify("Modification of a joined object is not supported.")
 		elif attr[0] != "attrs":
 			raise NoUserModify("Not allowed to modify attribute {}. Not an attribute.".format(key))
 		else:
@@ -125,9 +128,8 @@ class IcingaObjects(CachedResultSet):
 		# Fire modification query (returns APIResponse object)
 		ret = mquery()
 
-		if not ret.ok:
+		if ret.status_code >= 400:
 			# Something went wrong -> do not modify
-			# TODO check if checking for OK is enough (maybe status_code<400 ?)
 			return ret
 
 		# Modify cached attribute values
@@ -197,7 +199,7 @@ class IcingaObject(Result, IcingaObjects):
 			# Check no_user_view
 			if self.permissions(attr[1])[0]:
 				raise NoUserView("Not allowed to view attribute {}".format(attr))
-		# TODO handle dictionaries - should be possible over the "object_hook" of JSONDecoder
+		# TODO handle dictionaries
 		return super().__getitem__(attr)
 
 	def __getattr__(self, attr):
