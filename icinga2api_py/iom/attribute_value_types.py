@@ -3,9 +3,10 @@
 As IcingaObjects can also be attribute values (as reference e.g. ´host_name´ in Service
 or directly e.g. ´last_check_result´ in Checkable) this is also linked to the objects module...
 
-There is also a JSON Encoder in this module, that is able to encode all AttributeValue objects."""
+There is also a JSON Encoder in this module, that is able to encode all AttributeValue objects.
+Below the encoder is a JSON decoder helper, that provides a object_pairs_hook method for decoding."""
 
-from json import JSONDecoder, JSONEncoder
+from json import JSONEncoder
 from .objects import IcingaObject
 
 
@@ -65,9 +66,12 @@ class NativeAttributeValue(AttributeValue):
 		cls.converter(value)
 
 
-def create_native_attribute_value_type(name, converter):
+def create_native_attribute_value_type(name, converter=None):
 	"""Create a NativeAttributeValue class using a converter."""
-	return type(name, (AttributeValue, ), {"converter": converter, "__module__": AttributeValue.__module__})
+	if converter:
+		return type(name, (AttributeValue, ), {"converter": converter, "__module__": AttributeValue.__module__})
+	else:
+		return type(name, (AttributeValue, ), {"__module__": AttributeValue.__module__})
 
 
 class ObjectAttributeValue(AttributeValue, IcingaObject):
@@ -102,10 +106,66 @@ class JSONResultEncoder(JSONEncoder):
 			# Just serialize the value
 			return super().default(o.value())
 
-		# TODO try direct convert with appropriate class method
+		# TODO use diect_convert of the appropriate class somehow???
 		super().default(o)
 
 
-class JSONResultDecoder(JSONDecoder):
-	"""Decode results from JSON."""
-	# TODO implement
+ICINGA_PYTHON_CONVERSION = {
+	"Number": create_native_attribute_value_type("Number"),
+	"String": create_native_attribute_value_type("String"),
+	"Boolean": create_native_attribute_value_type("Boolean"),
+	"Timestamp": Timestamp,
+	"Array": None,  # No final conversion
+	"Dictionary": None,  # No final conversion
+	"Value": create_native_attribute_value_type("Value"),  # ???????????????????? # TODO check // or issue?
+	# Duration does not appear over API(?)
+}
+
+
+class JSONResultDecodeHelper:
+	"""Helperfor decode JSON encoded results. Provides a object_pairs_hook."""
+	def __init__(self, parent_object):
+		self._parent_object = parent_object
+
+	def object_pairs_hook(self, pairs):
+		"""The object_pairs_hook for JSON-decoding."""
+		res = {}
+		for key, value in pairs:
+			if key == "results":
+				# Final conversion for everything else than list and dict depending on the parent_object's fields
+				self.final_conversion(value)
+			else:
+				# Convert list and dict
+				res[key] = self.general_object_conversion(key, value)
+		return res
+
+	def general_object_conversion(self, key, object):
+		"""Performs general conversions for dict and list to Dictionary and Array."""
+		if isinstance(object, dict):
+			return Dictionary(self._parent_object, key, object)
+		if isinstance(object, list):
+			return Array(self._parent_object, key, object)
+
+		return object
+
+	def final_conversion(self, *objects):
+		"""Final type conversion for every object passed. The conversion depends on the parent_object's fields and their
+		types."""
+		# Return value
+		ret = []
+		# Iterate over objects
+		for obj in objects:
+			# New object
+			res = {}
+			for key, value in obj.items():
+				type_ = self._parent_object.FIELDS[key]["type"]
+				type_ = ICINGA_PYTHON_CONVERSION.get(type_, None)
+				if type_:
+					res[key] = type_(self._parent_object, key, value)
+				else:
+					# No type conversion at all, because explicitely suppressed or type is not supported
+					res[key] = value
+
+			ret.append(res)
+
+		return ret

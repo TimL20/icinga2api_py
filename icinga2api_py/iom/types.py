@@ -26,14 +26,7 @@ class Types(CachedResultSet):
 		"ConfigObject": IcingaConfigObject,
 		"ConfigObjects": IcingaConfigObjects,
 
-		"Number": float,
-		"String": str,
-		"Boolean": bool,
-		"Timestamp": float,  # Maybe that should be compareable to Python datetime?
-		"Array": list,
-		"Dictionary": dict,
-		"Value": str,  # ???????????????????? # TODO check // or issue?
-		# Duration does not appear over API(?)
+		# Basic attribute types (Number, String, ...) not here anymore because not needed here (TODO check)
 	}
 
 	def __init__(self, session):

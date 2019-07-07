@@ -9,7 +9,7 @@ import json
 from .exceptions import NoUserView, NoUserModify
 from ..results import ResultSet, CachedResultSet, Result
 from .types import Number
-from .attribute_value_types import JSONResultEncoder, JSONResultDecoder
+from .attribute_value_types import JSONResultEncoder, JSONResultDecodeHelper
 
 # Possible keys of an objects query result
 OBJECT_QUERY_RESULT_KEYS = {"name", "type", "attrs", "joins", "meta"}
@@ -48,8 +48,8 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		super().__init__(request, session.cache_time, response, results, next_cache_expiry)
 		self._session = session
 
-		# JSON Decoder
-		self._json_kwargs["cls"] = JSONResultDecoder
+		# JSON Decoding
+		self._json_kwargs["object_pairs_hook"] = JSONResultDecodeHelper(self).object_pairs_hook
 
 	def result(self, index):
 		"""Return an object representation for the object at this index of results."""
@@ -140,11 +140,14 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 
 	def modify(self, attrs):
 		"""Modify this/these objects. Attributes to modify as a dict."""
-		# Check if modification is allowed
-		for key in attrs.keys():
+		# Check if modification is allowed and convert type
+		for key, value in attrs.items():
 			# TODO this may only work with simple attributes...
 			if self.permissions(key)[1]:
 				raise NoUserModify("Not allowed to modify attribute {}".format(key))
+
+			# TODO convert type
+			# For example a Dictionary type must be converted into a attribute_value_types.Dictionary
 
 		# Create modification query
 		mquery = self._request.clone()
