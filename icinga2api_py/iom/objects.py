@@ -5,17 +5,39 @@ The classes for the mapped Icinga objects are created in the types module, but e
 a class here.
 No thread-safety (yet)."""
 
+import json
 from .exceptions import NoUserView, NoUserModify
-from ..results import Result, CachedResultSet
+from ..results import ResultSet, CachedResultSet, Result
 from .types import Number
+from .attribute_value_types import JSONResultEncoder, JSONResultDecoder
 
 # Possible keys of an objects query result
 OBJECT_QUERY_RESULT_KEYS = {"name", "type", "attrs", "joins", "meta"}
 
 
-class IcingaObjects(CachedResultSet):
+class IcingaObjects(ResultSet):
+	"""Base class of every representation of any number of Icinga objects that have the same type."""
+	def __init__(self, value_sequence=None):
+		"""Init Objects with a sequence of the Objects "values"."""
+		super().__init__(value_sequence)
+
+	def result(self, index):
+		if isinstance(index, slice):
+			return IcingaObjects(self.results[index])
+		return IcingaObject((self.results[index],))
+
+
+class IcingaObject(Result, IcingaObjects):
+	"""Representation of exactly one Icinga object."""
+	def __init__(self, value_sequence=None, value=None):
+		value_sequence = value_sequence or ((value, ) if value is not None else tuple())
+		IcingaObjects.__init__(value_sequence)
+		super().__init__(value_sequence)
+
+
+class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 	"""Representation, of any number of Icinga objects that have same type.
-	This is the parent class of all dynamically created Icinga object type classes."""
+	This is the parent class of all dynamically created Icinga configuration object type classes."""
 
 	# The DESC is overriden in subclasses with the Icinga type description
 	DESC = {}
@@ -25,6 +47,9 @@ class IcingaObjects(CachedResultSet):
 	def __init__(self, session, request, response=None, results=None, next_cache_expiry=None):
 		super().__init__(request, session.cache_time, response, results, next_cache_expiry)
 		self._session = session
+
+		# JSON Decoder
+		self._json_kwargs["cls"] = JSONResultDecoder
 
 	def result(self, index):
 		"""Return an object representation for the object at this index of results."""
@@ -102,6 +127,7 @@ class IcingaObjects(CachedResultSet):
 		"""Modify object value(s) if the attribute name is a field of this object type. Otherwise default behavior."""
 		attr = self.parse_attrs(key)  # Will possibly prefix "attrs"
 		if attr[1] not in self.FIELDS:
+			# Fallback to default for non-fields
 			return super().__setattr__(key, value)
 
 		if attr[0] == "joins":
@@ -116,6 +142,7 @@ class IcingaObjects(CachedResultSet):
 		"""Modify this/these objects. Attributes to modify as a dict."""
 		# Check if modification is allowed
 		for key in attrs.keys():
+			# TODO this may only work with simple attributes...
 			if self.permissions(key)[1]:
 				raise NoUserModify("Not allowed to modify attribute {}".format(key))
 
@@ -123,8 +150,12 @@ class IcingaObjects(CachedResultSet):
 		mquery = self._request.clone()
 		mquery.method_override = "POST"
 		# Copy original JSON body and overwrite attributes for modification
-		mquery.json = dict(mquery.json)["attrs"] = {}
-		mquery.json["attrs"] = attrs
+		data = dict(mquery.json)["attrs"] = {}
+		data["attrs"] = attrs
+		# JSON Encoding
+		mquery.data = json.dumps(data, cls=JSONResultEncoder)
+		# Not neccessary, but avoids confusion
+		del mquery.json
 		# Fire modification query (returns APIResponse object)
 		ret = mquery()
 
@@ -140,7 +171,7 @@ class IcingaObjects(CachedResultSet):
 		return ret
 
 
-class IcingaObject(Result, IcingaObjects):
+class IcingaConfigObject(IcingaObject, IcingaConfigObjects):
 	"""Representation of an Icinga object."""
 
 	# The DESC is overriden in subclasses with the Icinga type description
@@ -150,7 +181,7 @@ class IcingaObject(Result, IcingaObjects):
 
 	def __init__(self, session, request, response=None, results=None, next_cache_expiry=None):
 		# Call other super init first
-		IcingaObjects.__init__(self, session, request, response, results, next_cache_expiry)
+		IcingaConfigObjects.__init__(self, session, request, response, results, next_cache_expiry)
 		# Call super init of Result, overwrites results
 		super().__init__(results)
 

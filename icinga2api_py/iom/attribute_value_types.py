@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 """This module defines attribute value types.
 As IcingaObjects can also be attribute values (as reference e.g. ´host_name´ in Service
-or directly e.g. ´last_check_result´ in Checkable) this is also linked to the objects module..."""
+or directly e.g. ´last_check_result´ in Checkable) this is also linked to the objects module...
 
+There is also a JSON Encoder in this module, that is able to encode all AttributeValue objects."""
+
+from json import JSONDecoder, JSONEncoder
 from .objects import IcingaObject
 
 
@@ -43,22 +46,28 @@ class AttributeValue:
 
 class NativeAttributeValue(AttributeValue):
 	"""For attribute value types that are native (builtin) Python types.
-	Basically just implements type conversion and requires the CONVERTER to do all the work or raise errors.
-	The default implementation does nothing, but overriding the CONVERTER (in subclasses) makes it useful."""
-	CONVERTER = lambda x: x
+	Basically just implements type conversion and requires the converter to do all the work or raise errors.
+	The default implementation does nothing, but overriding the converter (in subclasses) makes it useful."""
+
+	@classmethod
+	def converter(cls, x):
+		"""Convert Python object to Icinga value. Default does just return the object."""
+		return x
 
 	@classmethod
 	def convert(cls, value):
-		return super().convert(cls.CONVERTER(value))
+		"""Other Python object to an object ot this class."""
+		return super().convert(cls.converter(value))
 
 	@classmethod
 	def direct_convert(cls, value):
-		cls.CONVERTER(value)
+		"""Python object to Icinga value."""
+		cls.converter(value)
 
 
 def create_native_attribute_value_type(name, converter):
 	"""Create a NativeAttributeValue class using a converter."""
-	return type(name, (AttributeValue, ), {"CONVERTER": converter})
+	return type(name, (AttributeValue, ), {"converter": converter, "__module__": AttributeValue.__module__})
 
 
 class ObjectAttributeValue(AttributeValue, IcingaObject):
@@ -83,4 +92,20 @@ class Array(AttributeValue):
 
 class Dictionary(AttributeValue):
 	"""Icinga Dictionary attribute type. Also something like a dictionary here."""
+	# TODO implement
+
+
+class JSONResultEncoder(JSONEncoder):
+	"""Encode Python representation of result(s) to JSON."""
+	def default(self, o):
+		if isinstance(o, AttributeValue):
+			# Just serialize the value
+			return super().default(o.value())
+
+		# TODO try direct convert with appropriate class method
+		super().default(o)
+
+
+class JSONResultDecoder(JSONDecoder):
+	"""Decode results from JSON."""
 	# TODO implement

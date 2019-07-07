@@ -4,7 +4,7 @@
 import enum
 import threading
 from ..results import CachedResultSet, Result
-from .objects import IcingaObject, IcingaObjects
+from .objects import IcingaObject, IcingaObjects, IcingaConfigObject, IcingaConfigObjects
 
 
 class Number(enum.Enum):
@@ -17,8 +17,15 @@ class Number(enum.Enum):
 class Types(CachedResultSet):
 	"""A class to create Python classes from the Icinga type definitions."""
 
-	# Map simple Icinga types to Python type
+	# Map some Icinga object types directly to Python types
 	ICINGA_PYTHON_TYPES = {
+		# Base class for everything else...
+		"Object": IcingaObject,
+		"Objects": IcingaObjects,
+		# Configuration objects are what this IOM part is all about...
+		"ConfigObject": IcingaConfigObject,
+		"ConfigObjects": IcingaConfigObjects,
+
 		"Number": float,
 		"String": str,
 		"Boolean": bool,
@@ -64,24 +71,19 @@ class Types(CachedResultSet):
 	def type(self, item, number=Number.IRRELEVANT):
 		"""Get an Icinga object type by its name. Both singular and plural names are accepted.
 		A class for this type is returned. It's possible to specify whether to return the singular or the plural type."""
+		if item in self.ICINGA_PYTHON_TYPES:
+			# Types mapped directly for advanced functionality
+			return self.ICINGA_PYTHON_TYPES[item]
+
 		with self._lock:
 			if item in self._classes:
+				# Already created
 				return self._classes[item]
 			# Get type description from Icinga API
 			type_desc, singular = self[item]
 			# All fields for this type (also fields of base classes)
 			fields = {}
 			for name, desc in type_desc["fields"].items():
-				try:
-					if desc["type"] not in self.ICINGA_PYTHON_TYPES.values():
-						desc["type"] = self.ICINGA_PYTHON_TYPES[desc["type"]]
-				except KeyError:
-					try:
-						# Value type can be a type described in types
-						desc["type"] = self.type(desc["type"], Number.SINGULAR)
-					except (KeyError, ValueError, AttributeError):
-						raise ValueError("Icinga object type {}: field {} has an unknown value type: {}".format(
-							item, name, desc["type"]))
 				fields[name] = desc
 
 			try:
@@ -90,6 +92,8 @@ class Types(CachedResultSet):
 				# No such type, or no "base" in the type descprion (second is more likely)
 				# The Icinga API doc clearly states, that base is in every type description - but this is not the case!
 				# -> TODO Icinga issue
+
+				# TODO check if this exception is still needed now; try to remove it anyway
 
 				# Parent class
 				parent = IcingaObject if number == Number.SINGULAR else IcingaObjects
