@@ -7,6 +7,7 @@ There is also a JSON Encoder in this module, that is able to encode all Attribut
 Below the encoder is a JSON decoder helper, that provides a object_pairs_hook method for decoding."""
 
 from json import JSONEncoder
+from .types import Number
 from .objects import IcingaObject
 
 
@@ -74,11 +75,6 @@ def create_native_attribute_value_type(name, converter=None):
 		return type(name, (AttributeValue, ), {"__module__": AttributeValue.__module__})
 
 
-class ObjectAttributeValue(AttributeValue, IcingaObject):
-	"""IcingaObject as an attribute value."""
-	# TODO implement (or remove if not needed)
-
-
 class Timestamp(AttributeValue):
 	"""Icinga timestamp attribute type. A float on the Icinga side, float and datetime here."""
 	# TODO implement
@@ -99,6 +95,12 @@ class Dictionary(AttributeValue):
 	# TODO implement
 
 
+class ObjectAttributeValue(Dictionary, IcingaObject):
+	"""IcingaObject as an attribute value. Inherits from Dictionary, because these objects are represented as JSON dicts
+	anyway."""
+	# TODO implement (or remove if not needed)
+
+
 class JSONResultEncoder(JSONEncoder):
 	"""Encode Python representation of result(s) to JSON."""
 	def default(self, o):
@@ -108,18 +110,6 @@ class JSONResultEncoder(JSONEncoder):
 
 		# TODO use diect_convert of the appropriate class somehow???
 		super().default(o)
-
-
-ICINGA_PYTHON_CONVERSION = {
-	"Number": create_native_attribute_value_type("Number"),
-	"String": create_native_attribute_value_type("String"),
-	"Boolean": create_native_attribute_value_type("Boolean"),
-	"Timestamp": Timestamp,
-	"Array": None,  # No final conversion
-	"Dictionary": None,  # No final conversion
-	"Value": create_native_attribute_value_type("Value"),  # ???????????????????? # TODO check // or issue?
-	# Duration does not appear over API(?)
-}
 
 
 class JSONResultDecodeHelper:
@@ -134,19 +124,8 @@ class JSONResultDecodeHelper:
 			if key == "results":
 				# Final conversion for everything else than list and dict depending on the parent_object's fields
 				self.final_conversion(value)
-			else:
-				# Convert list and dict
-				res[key] = self.general_object_conversion(key, value)
+			res[key] = value
 		return res
-
-	def general_object_conversion(self, key, object):
-		"""Performs general conversions for dict and list to Dictionary and Array."""
-		if isinstance(object, dict):
-			return Dictionary(self._parent_object, key, object)
-		if isinstance(object, list):
-			return Array(self._parent_object, key, object)
-
-		return object
 
 	def final_conversion(self, *objects):
 		"""Final type conversion for every object passed. The conversion depends on the parent_object's fields and their
@@ -159,7 +138,7 @@ class JSONResultDecodeHelper:
 			res = {}
 			for key, value in obj.items():
 				type_ = self._parent_object.FIELDS[key]["type"]
-				type_ = ICINGA_PYTHON_CONVERSION.get(type_, None)
+				self._parent_object.session.types.type(type_, Number.SINGULAR)
 				if type_:
 					res[key] = type_(self._parent_object, key, value)
 				else:

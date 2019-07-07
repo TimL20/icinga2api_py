@@ -57,14 +57,30 @@ class Icinga2Objects(CachedResultSet):
 		"""Process an action with specified parameters. This method works only, because each and every object query
 		result has object type (type) and full object name (name) for the object. It is assumed, that the type is the
 		same for all objects (should be...). With this information, a filter is created, that should match all Icinga2
-		objects represented."""
+		objects represented.
+		As there is no action specified in the documentation, that applies to other objects than hosts or services, this
+		method will only handle hosts and services."""
 		if len(self) < 1:
 			return None
 		type = self[0]["type"].lower()
 		names = [obj["name"] for obj in self]
 		logging.getLogger(__name__).debug("Processing action {} for {} objects of type {}".format(action, len(names), type))
-		fstring = "\" or {}.name==\"".format(type)
-		fstring = "{}.name==\"{}\"".format(type, fstring.join(names))
+		if type == "host":
+			# Hosts filters are quite simple
+			fstring = "host.name==\"{}\"".format("\" || host.name==\"".join(names))
+		elif type == "service":
+			# Services are objects that are specified as <host>!<service>
+			host_service_pairs = [name.split('!', 1) for name in names]
+			fstringbuilder = [
+				"(host.name==\"{}\" && service.name==\"{}\")".format(host, service)
+				for host, service in host_service_pairs
+			]
+			fstring = " || ".join(fstringbuilder)
+		else:
+			raise ValueError("Action on objects only allowed for host or service object")
+
+		if not fstring:
+			return None
 
 		# self._request.api = Icinga2 (client) instance
 		query = self._request.api.actions.s(action).type(type.title()).filter(fstring)

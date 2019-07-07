@@ -4,6 +4,7 @@
 import enum
 import threading
 from ..results import CachedResultSet, Result
+from .attribute_value_types import Array, Dictionary, Timestamp, create_native_attribute_value_type
 from .objects import IcingaObject, IcingaObjects, IcingaConfigObject, IcingaConfigObjects
 
 
@@ -26,7 +27,16 @@ class Types(CachedResultSet):
 		"ConfigObject": IcingaConfigObject,
 		"ConfigObjects": IcingaConfigObjects,
 
-		# Basic attribute types (Number, String, ...) not here anymore because not needed here (TODO check)
+		# Mapping for attribute value types
+		# TODO check if that mapping is really neccessary for all types
+		"Number": create_native_attribute_value_type("Number"),
+		"String": create_native_attribute_value_type("String"),
+		"Boolean": create_native_attribute_value_type("Boolean"),
+		"Timestamp": Timestamp,
+		"Array": Array,
+		"Dictionary": Dictionary,
+		"Value": create_native_attribute_value_type("Value"),  # ???????????????????? # TODO check // or issue?
+		# Duration does not appear over API(?)
 	}
 
 	def __init__(self, session):
