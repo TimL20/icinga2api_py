@@ -7,8 +7,9 @@ There is also a JSON Encoder in this module, that is able to encode all Attribut
 Below the encoder is a JSON decoder helper, that provides a object_pairs_hook method for decoding."""
 
 from json import JSONEncoder
+import datetime
+import functools
 from .types import Number
-from .objects import IcingaObject
 
 
 class AttributeValue:
@@ -75,9 +76,35 @@ def create_native_attribute_value_type(name, converter=None):
 		return type(name, (AttributeValue, ), {"__module__": AttributeValue.__module__})
 
 
-class Timestamp(AttributeValue):
-	"""Icinga timestamp attribute type. A float on the Icinga side, float and datetime here."""
-	# TODO implement
+class TimestampMeta(type):
+	"""Metaclass for Timestamp."""
+	def __new__(mcs, name, parents, namespace):
+		cls = super().__new__(mcs, name, parents, namespace)
+		# Add properties for everything in "DATETIME_PROPERTIES"
+		for attr in cls.DATETIME_PROPERTIES:
+			setattr(cls, attr, property(functools.partialmethod(cls.get_property, attr)))
+		return cls
+
+
+class Timestamp(AttributeValue, metaclass=TimestampMeta):
+	"""Icinga timestamp attribute type. A timestamp as a float on the Icinga side.
+	Here Timestamp is usable both as datetime.datetime as well as float (timestamp)."""
+	# TODO make Timetsamp working
+	# TODO add missing datetime properties
+	DATETIME_PROPERTIES = ("hour", "minute", "second")
+
+	def __init__(self, parent_object, attribute, value):
+		super().__init__(parent_object, attribute, value)
+		self._dt = datetime.datetime.utcfromtimestamp(value)
+
+	@property
+	def datetime(self):
+		"""Return a appropriate datetime.datetime object."""
+		return self._dt
+
+	def get_property(self, property):
+		"""Get a property of datetime."""
+		return getattr(self.datetime, property)
 
 
 class Duration(AttributeValue):
@@ -95,20 +122,12 @@ class Dictionary(AttributeValue):
 	# TODO implement
 
 
-class ObjectAttributeValue(Dictionary, IcingaObject):
-	"""IcingaObject as an attribute value. Inherits from Dictionary, because these objects are represented as JSON dicts
-	anyway."""
-	# TODO implement (or remove if not needed)
-
-
 class JSONResultEncoder(JSONEncoder):
 	"""Encode Python representation of result(s) to JSON."""
 	def default(self, o):
 		if isinstance(o, AttributeValue):
 			# Just serialize the value
 			return super().default(o.value())
-
-		# TODO use diect_convert of the appropriate class somehow???
 		super().default(o)
 
 
@@ -127,8 +146,8 @@ class JSONResultDecodeHelper:
 			res[key] = value
 		return res
 
-	def final_conversion(self, *objects):
-		"""Final type conversion for every object passed. The conversion depends on the parent_object's fields and their
+	def final_conversion(self, objects):
+		"""Final type conversion for passed objects. The conversion depends on the parent_object's fields and their
 		types."""
 		# Return value
 		ret = []
@@ -138,7 +157,10 @@ class JSONResultDecodeHelper:
 			res = {}
 			for key, value in obj.items():
 				type_ = self._parent_object.FIELDS[key]["type"]
-				self._parent_object.session.types.type(type_, Number.SINGULAR)
+				try:
+					type_ = self._parent_object.session.types.type(type_, Number.SINGULAR)
+				except(KeyError):
+					type_ = None
 				if type_:
 					res[key] = type_(self._parent_object, key, value)
 				else:

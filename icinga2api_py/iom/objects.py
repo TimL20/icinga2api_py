@@ -51,6 +51,10 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		# JSON Decoding
 		self._json_kwargs["object_pairs_hook"] = JSONResultDecodeHelper(self).object_pairs_hook
 
+	@property
+	def session(self):
+		return self._session
+
 	def result(self, index):
 		"""Return an object representation for the object at this index of results."""
 		if isinstance(index, slice):
@@ -130,24 +134,30 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 			# Fallback to default for non-fields
 			return super().__setattr__(key, value)
 
-		if attr[0] == "joins":
-			raise NoUserModify("Modification of a joined object is not supported.")
-		elif attr[0] != "attrs":
-			raise NoUserModify("Not allowed to modify attribute {}. Not an attribute.".format(key))
-		else:
-			# Modify this object
-			self.modify({".".join(attr[1:]): value})
+		# Modify this object
+		# TODO use attr somehow and avoid parse_attrs for a second time this way
+		self.modify({key: value})
 
 	def modify(self, attrs):
-		"""Modify this/these objects. Attributes to modify as a dict."""
-		# Check if modification is allowed and convert type
+		"""Modify this/these objects. Attributes to modify as a dict.
+		This method checks if the modification is allowed and possibly converts attribute values."""
 		for key, value in attrs.items():
-			# TODO this may only work with simple attributes...
-			if self.permissions(key)[1]:
+			attr = self.parse_attrs(key)
+			if attr[0] == "joins":
+				raise NoUserModify("Modification of a joined object is not supported.")
+			elif attr[0] != "attrs":
+				raise NoUserModify("Not allowed to modify attribute {}. Not an attribute.".format(key))
+			attr = attr[1]
+
+			# Check if modification is allowed
+			if self.permissions(attr)[1]:
 				raise NoUserModify("Not allowed to modify attribute {}".format(key))
 
-			# TODO convert type
+			# Convert type
 			# For example a Dictionary type must be converted into a attribute_value_types.Dictionary
+			# TODO treat ObjectAttributeValues...
+			# TODO check number=irrelevant is ok here for the type
+			attrs[key] = self._session.types.type(self.FIELDS[attr]["type"]).convert(value)
 
 		# Create modification query
 		mquery = self._request.clone()
@@ -193,35 +203,6 @@ class IcingaConfigObject(IcingaObject, IcingaConfigObjects):
 		"""The name of this object."""
 		return self["name"]
 
-	def parse_attrs(self, attrs):
-		"""Parse attrs string.
-		"attrs.state" -> ["attrs", "state"]
-		"name" -> ["name"]
-		"last_check_result.output" -> ["attrs", "last_check_result", "output"]
-
-		Also on a <Type, e.g. host> object:
-		"<typename>.last_check_result.output" -> ["attrs", "last_check_result", "output"]
-
-		Also on a <Type> that is in the joins dictionary:
-		"<typename>.last_check_result.output" -> ["joins", <typename>, "last_check_result", "output"]
-		"""
-		split = attrs.split('.')
-		# First key (name, type, attrs, joins, meta) - defaults to attrs
-
-		if split[0] not in OBJECT_QUERY_RESULT_KEYS:
-			# First key of attrs is not one that is handled "naturally"
-			if split[0].lower() == self.type.lower():
-				# Key is own type; cut first entry of split and insert "attrs" instead
-				return ["attrs"] + split[1:]
-			elif split[0] in self[0]["joins"]:
-				# Type in joins
-				return ["joins"] + split
-			else:
-				# Default is to insert "attrs" at the start
-				return ["attrs"] + split
-		# else
-		return split
-
 	def __getitem__(self, item):
 		"""Implements sequence and mapping access in one."""
 		if isinstance(item, (int, slice)):
@@ -233,7 +214,7 @@ class IcingaConfigObject(IcingaObject, IcingaConfigObjects):
 			# Check no_user_view
 			if self.permissions(attr[1])[0]:
 				raise NoUserView("Not allowed to view attribute {}".format(attr))
-		# TODO handle dictionaries
+		# Dictionaries and such stuff are handled because the use of the customized JSONDecoder
 		return super().__getitem__(attr)
 
 	def __getattr__(self, attr):
