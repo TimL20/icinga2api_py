@@ -9,7 +9,9 @@ Below the encoder is a JSON decoder helper, that provides a object_pairs_hook me
 from json import JSONEncoder
 import datetime
 import functools
+import collections.abc
 from .types import Number
+from ..results import Result
 
 
 class AttributeValue:
@@ -29,15 +31,15 @@ class AttributeValue:
 		self._value = value
 
 	@classmethod
-	def convert(cls, value):
+	def convert(cls, parent_object, key, value):
 		"""Convert other Python object to an object of this class if possible."""
-		return cls(None, None, value)
+		return cls(parent_object, key, value)
 
 	@classmethod
-	def direct_convert(cls, value):
+	def direct_convert(cls, parent_object, key, value):
 		"""Convert other Python object to Icinga value that would also result from ´cls.convert(value).value()´.
 		The default implementation is a fallback for subclasses."""
-		return cls.convert(value).value()
+		return cls.convert(parent_object, key, value).value()
 
 	def value(self):
 		"""Get value for Icinga."""
@@ -58,14 +60,14 @@ class NativeAttributeValue(AttributeValue):
 		return x
 
 	@classmethod
-	def convert(cls, value):
+	def convert(cls, parent_object, key, value):
 		"""Other Python object to an object ot this class."""
-		return super().convert(cls.converter(value))
+		return super().convert(parent_object, key, cls.converter(value))
 
 	@classmethod
-	def direct_convert(cls, value):
+	def direct_convert(cls, parent_object, key, value):
 		"""Python object to Icinga value."""
-		cls.converter(value)
+		return cls.converter(value)
 
 
 def create_native_attribute_value_type(name, converter=None):
@@ -112,14 +114,51 @@ class Duration(AttributeValue):
 	# TODO implement
 
 
-class Array(AttributeValue):
+class Array(AttributeValue, collections.abc.Sequence):
 	"""Icinga Array attribute type. A sequence here."""
-	# TODO implement
+	# TODO MutableSequence
+	def __init__(self, parent_object, attribute, value):
+		super().__init__(parent_object, attribute, value)
+
+	@classmethod
+	def direct_convert(cls, parent_object, key, value):
+		return value
+
+	def __getitem__(self, item):
+		return self._value.__getitem__(item)
+
+	def __len__(self):
+		return self._value.__len__()
 
 
-class Dictionary(AttributeValue):
+class Dictionary(AttributeValue, collections.abc.Mapping):
 	"""Icinga Dictionary attribute type. Also something like a dictionary here."""
-	# TODO implement
+	# TODO MutableMapping
+	def __init__(self, parent_object, attribute, value):
+		super().__init__(parent_object, attribute, value)
+
+	@classmethod
+	def direct_convert(cls, parent_object, key, value):
+		return value
+
+	# TODO - this is bad (design)
+	parse_attrs = Result.parse_attrs
+
+	def __getitem__(self, item):
+		"""Mapping access with dot-syntax."""
+		try:
+			ret = self._value
+			for item in self.parse_attrs(item):
+				ret = ret[item]
+			return ret
+		except (KeyError, ValueError):
+			raise KeyError("No such key: {}".format(item))
+
+	def __len__(self):
+		return self._value.__len__()
+
+	def __iter__(self):
+		return self._value.__iter__()
 
 
 class JSONResultEncoder(JSONEncoder):
@@ -132,7 +171,7 @@ class JSONResultEncoder(JSONEncoder):
 
 
 class JSONResultDecodeHelper:
-	"""Helperfor decode JSON encoded results. Provides a object_pairs_hook."""
+	"""Helper for decoding JSON encoded results. Provides a object_pairs_hook."""
 	def __init__(self, parent_object):
 		self._parent_object = parent_object
 
@@ -159,7 +198,7 @@ class JSONResultDecodeHelper:
 				type_ = self._parent_object.FIELDS[key]["type"]
 				try:
 					type_ = self._parent_object.session.types.type(type_, Number.SINGULAR)
-				except(KeyError):
+				except KeyError:
 					type_ = None
 				if type_:
 					res[key] = type_(self._parent_object, key, value)

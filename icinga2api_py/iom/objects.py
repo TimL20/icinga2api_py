@@ -127,6 +127,11 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 			field = {"attributes": {"no_user_view": True, "no_user_modify": True}}
 		return field.get("no_user_view", True), field.get("no_user_modify", True)
 
+	def _attribute_type(self, attr):
+		"""Return type class for a attribute given by name."""
+		typename = self.FIEDLS[attr]["type"]
+		return self._session.types.type(typename)
+
 	def __setattr__(self, key, value):
 		"""Modify object value(s) if the attribute name is a field of this object type. Otherwise default behavior."""
 		attr = self.parse_attrs(key)  # Will possibly prefix "attrs"
@@ -138,33 +143,40 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		# TODO use attr somehow and avoid parse_attrs for a second time this way
 		self.modify({key: value})
 
-	def modify(self, attrs):
-		"""Modify this/these objects. Attributes to modify as a dict.
-		This method checks if the modification is allowed and possibly converts attribute values."""
-		for key, value in attrs.items():
-			attr = self.parse_attrs(key)
+	def modify(self, modification):
+		"""Modify this/these objects. Attributes and their new values as a dict.
+		This method checks if modification is allowed, converts the values and sends the modification to Icinga.
+		If Icinga returns a HTTP status_code<400 attribute values are also written to the objects results cache.
+		# TODO later: setting attributes should be separate from Icinga modification request
+		"""
+
+		# What is later send as an Icinga request
+		change = {}
+		for oldkey, oldval in modification.items():
+			attr = self.parse_attrs(oldkey)
 			if attr[0] == "joins":
 				raise NoUserModify("Modification of a joined object is not supported.")
 			elif attr[0] != "attrs":
 				raise NoUserModify("Not allowed to modify attribute {}. Not an attribute.".format(key))
-			attr = attr[1]
+
+			key = ".".join(attr)
 
 			# Check if modification is allowed
 			if self.permissions(attr)[1]:
 				raise NoUserModify("Not allowed to modify attribute {}".format(key))
 
-			# Convert type
-			# For example a Dictionary type must be converted into a attribute_value_types.Dictionary
-			# TODO treat ObjectAttributeValues...
+			# Convert attribute value type
+			type_ = self._attribute_type(attr[1])
+			# TODO treat ObjectAttribute values
 			# TODO check number=irrelevant is ok here for the type
-			attrs[key] = self._session.types.type(self.FIELDS[attr]["type"]).convert(value)
+			change[key] = type_.convert(self, key, oldval)
 
 		# Create modification query
 		mquery = self._request.clone()
 		mquery.method_override = "POST"
 		# Copy original JSON body and overwrite attributes for modification
 		data = dict(mquery.json)["attrs"] = {}
-		data["attrs"] = attrs
+		data["attrs"] = change
 		# JSON Encoding
 		mquery.data = json.dumps(data, cls=JSONResultEncoder)
 		# Not neccessary, but avoids confusion
@@ -178,7 +190,7 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 
 		# Modify cached attribute values
 		for res in self.results:
-			for key, value in attrs.items():
+			for key, value in change.items():
 				res[self.parse_attrs(key)] = value
 
 		return ret
