@@ -22,6 +22,7 @@ class IcingaObjects(ResultSet):
 		super().__init__(value_sequence)
 
 	def result(self, index):
+		"""Return an appropriate IcingaObject or (in case of a slice) IcingaObjects object."""
 		if isinstance(index, slice):
 			return IcingaObjects(self.results[index])
 		return IcingaObject((self.results[index],))
@@ -36,7 +37,7 @@ class IcingaObject(Result, IcingaObjects):
 
 
 class IcingaConfigObjects(CachedResultSet, IcingaObjects):
-	"""Representation, of any number of Icinga objects that have same type.
+	"""Representation of any number of Icinga objects that have the same type.
 	This is the parent class of all dynamically created Icinga configuration object type classes."""
 
 	# The DESC is overriden in subclasses with the Icinga type description
@@ -53,6 +54,7 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 
 	@property
 	def session(self):
+		"""The session such an object was created in."""
 		return self._session
 
 	def result(self, index):
@@ -124,11 +126,11 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		try:
 			field = self.FIELDS[attr]["attributes"]
 		except KeyError:
-			field = {"attributes": {"no_user_view": True, "no_user_modify": True}}
+			return True, True
 		return field.get("no_user_view", True), field.get("no_user_modify", True)
 
 	def _attribute_type(self, attr):
-		"""Return type class for a attribute given by name."""
+		"""Return type class for an attribute given by name."""
 		typename = self.FIEDLS[attr]["type"]
 		return self._session.types.type(typename)
 

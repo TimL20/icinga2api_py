@@ -29,11 +29,11 @@ class Session(API):
 
 
 class IOMQuery(Query):
-	"""Helper class to return a appropriate object for a request on a session."""
+	"""Helper class to return an appropriate object for a request on a session."""
 	OBJECT_IDENTIFIERS = {"object", "objects"}
 
 	def __call__(self, *args, **kwargs):
-		"""Get a object for the result of this query, if the type is an object and the HTTP method is GET."""
+		"""Get an object for the result of this query, if the type is an object and the HTTP method is GET."""
 		# Cut base url
 		url = self.url[self.url.find(self.api.base_url) + len(self.api.base_url):]
 		# Split by /

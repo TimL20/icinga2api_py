@@ -22,8 +22,8 @@ class AttributeValue:
 	- Other Python object to Python object of this class (convert)"""
 	def __init__(self, parent_object, attribute, value):
 		"""Init attribute value object with
-		:param parent_object: the object of which this is a attribute value
-		:param attribute: the attribute name of the attribute (of the parent_object)
+		:param parent_object: the object of which this is an attribute value
+		:param attribute: the attribute name (senn from the parent_object)
 		:param value: The attribute value as delivered from Icinga
 		"""
 		self._parent_object = parent_object
