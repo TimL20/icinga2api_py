@@ -13,12 +13,9 @@ class ResultSet(collections.abc.Sequence):
 		"""Construct a ResultSet with a results sequence or None."""
 		self._results = results
 
-		# Callable to parse attrs. Defaults to that one of Result, but could be overriden in a subclass
-		self.parse_attrs = Result.parse_attrs
-
 	def load(self):
 		"""Load results into _results. It's here to be overridden."""
-		pass
+		self._results = tuple()
 
 	@property
 	def results(self):
@@ -69,6 +66,14 @@ class ResultSet(collections.abc.Sequence):
 	###################################################################################################################
 	# Enhanced access to result data ##################################################################################
 	###################################################################################################################
+
+	@staticmethod
+	def parse_attrs(attrs):
+		"""Parse attrs string. Split attrs on dots. Prefix with "attrs" if needed."""
+		if not isinstance(attrs, str):
+			return attrs
+
+		return attrs.split('.')
 
 	def values(self, attr, raise_nokey=False, nokey_value=None):
 		"""Return all values of the given attribute as list.
@@ -376,14 +381,6 @@ class Result(ResultSet, collections.abc.Mapping):
 	def _raw(self):
 		"""Get the "raw" result as a dictionary. Meant for internal use only."""
 		return self.results[0]
-
-	@staticmethod
-	def parse_attrs(attrs):
-		"""Parse attrs string. Split attrs on dots. Prefix with "attrs" if needed."""
-		if not isinstance(attrs, str):
-			return attrs
-
-		return attrs.split('.')
 
 	def __getitem__(self, item):
 		"""Implements Mapping and sequence access in one."""
