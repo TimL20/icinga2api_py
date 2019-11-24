@@ -6,9 +6,10 @@ a class here.
 No thread-safety (yet)."""
 
 import json
+
 from .exceptions import NoUserView, NoUserModify
 from ..results import ResultSet, CachedResultSet, Result
-from .types import Number
+from .base import Number
 from .attribute_value_types import JSONResultEncoder, JSONResultDecodeHelper
 
 # Possible keys of an objects query result
@@ -17,6 +18,12 @@ OBJECT_QUERY_RESULT_KEYS = {"name", "type", "attrs", "joins", "meta"}
 
 class IcingaObjects(ResultSet):
 	"""Base class of every representation of any number of Icinga objects that have the same type."""
+
+	# The DESC is overriden in subclasses with the Icinga type description
+	DESC = {}
+	# The FIELDS is overriden in subclasses with all FIELDS and their description for the object type (incl. from parents)
+	FIELDS = {}
+
 	def __init__(self, value_sequence=None):
 		"""Init Objects with a sequence of the Objects "values"."""
 		super().__init__(value_sequence)
@@ -39,11 +46,6 @@ class IcingaObject(Result, IcingaObjects):
 class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 	"""Representation of any number of Icinga objects that have the same type.
 	This is the parent class of all dynamically created Icinga configuration object type classes."""
-
-	# The DESC is overriden in subclasses with the Icinga type description
-	DESC = {}
-	# The FIELDS is overriden in subclasses with all FIELDS and their description for the object type (incl. from parents)
-	FIELDS = {}
 
 	def __init__(self, session, request, response=None, results=None, next_cache_expiry=None):
 		super().__init__(request, session.cache_time, response, results, next_cache_expiry)
@@ -136,8 +138,7 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 
 	def __setattr__(self, key, value):
 		"""Modify object value(s) if the attribute name is a field of this object type. Otherwise default behavior."""
-		attr = self.parse_attrs(key)  # Will possibly prefix "attrs"
-		if attr[1] not in self.FIELDS:
+		if (key and key[0] == '_') or (self.parse_attrs(key)[1] not in self.FIELDS):
 			# Fallback to default for non-fields
 			return super().__setattr__(key, value)
 

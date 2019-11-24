@@ -1,18 +1,11 @@
 # -*- coding: utf-8 -*-
 """This module is for creating the Icinga object types as Python classes."""
 
-import enum
 import threading
 from ..results import CachedResultSet, Result
 from .attribute_value_types import Array, Dictionary, Timestamp, create_native_attribute_value_type
 from .objects import IcingaObject, IcingaObjects, IcingaConfigObject, IcingaConfigObjects
-
-
-class Number(enum.Enum):
-	"""Whether a type should be in singular or plural form. Or not specified (irrelevant)."""
-	SINGULAR = 1
-	PLURAL = 2
-	IRRELEVANT = 0
+from .base import Number
 
 
 class Types(CachedResultSet):
@@ -74,6 +67,14 @@ class Types(CachedResultSet):
 	def type(self, item, number=Number.IRRELEVANT):
 		"""Get an Icinga object type by its name. Both singular and plural names are accepted.
 		A class for this type is returned. It's possible to specify whether to return the singular or the plural type."""
+		# Handle singular/plural first, to avoid problems related to that in general
+		if number == Number.SINGULAR:
+			item = item[:-1] if item[-1] == 's' else item
+		elif number == Number.PLURAL:
+			item = item + 's' if item[-1] != 's' else item
+		else:
+			number = Number.PLURAL if item[-1] == 's' else Number.PLURAL
+
 		if item in self.ICINGA_PYTHON_TYPES:
 			# Types mapped directly for advanced functionality
 			return self.ICINGA_PYTHON_TYPES[item]

@@ -10,7 +10,7 @@ from json import JSONEncoder
 import datetime
 import functools
 import collections.abc
-from .types import Number
+from .base import Number
 from ..results import Result
 
 
@@ -181,7 +181,7 @@ class JSONResultDecodeHelper:
 		for key, value in pairs:
 			if key == "results":
 				# Final conversion for everything else than list and dict depending on the parent_object's fields
-				self.final_conversion(value)
+				value = self.final_conversion(value)
 			res[key] = value
 		return res
 
@@ -194,13 +194,15 @@ class JSONResultDecodeHelper:
 		for obj in objects:
 			# New object
 			res = {}
-			for key, value in obj.items():
-				type_ = self._parent_object.FIELDS[key]["type"]
+			for key, value in obj.get("attrs", dict()).items():
 				try:
+					type_ = self._parent_object.FIELDS[key]["type"]
 					type_ = self._parent_object.session.types.type(type_, Number.SINGULAR)
 				except KeyError:
 					type_ = None
 				if type_:
+					# This fails evertime type_ is not an AttributeValue, e.g. if it's a IcingaConfigObjects
+					# TODO make this somehow work everytime...
 					res[key] = type_(self._parent_object, key, value)
 				else:
 					# No type conversion at all, because explicitely suppressed or type is not supported

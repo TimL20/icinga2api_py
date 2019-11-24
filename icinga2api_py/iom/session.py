@@ -2,10 +2,15 @@
 """This module puts all Icinga-object-mapping things together.
 """
 
+import logging
+
 from ..api import API
 from ..clients import Client
 from ..models import APIRequest, Query
+from .base import Number
 from . import Types
+
+LOGGER = logging.getLogger(__name__)
 
 
 class Session(API):
@@ -40,14 +45,17 @@ class IOMQuery(Query):
 		url = "" if not url else url.split("/")
 		basetype = url[0]
 		if basetype not in self.OBJECT_IDENTIFIERS:
-			super().__call__(*args, **kwargs)
+			LOGGER.debug("No object identifier recognized in %s for URL %s", self.__class__.__name__, url)
+			return super().__call__(*args, **kwargs)
 
 		# Get request for this query
 		request = self.request()
 		if self.method_override == "GET":
 			otype = url[1]
+			# TODO add name+SINGULAR case
 			# name = url[2]if len(url) > 2 else None
-			class_ = self.api.types.type(otype)
+			class_ = self.api.types.type(otype, Number.PLURAL)
+			LOGGER.debug("Using class %s for URL %s (%s)", class_.__name__, url, self.__class__.__name__)
 			return class_(self.api, request)
 
 		if self.method_override in {"POST", "DELETE"}:
