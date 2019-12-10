@@ -44,8 +44,8 @@ class Services(Icinga2Objects):
 
 class Templates(Icinga2Objects):
 	"""Representation of Icinga2 templates."""
-	def __init__(self, request, cache_time, response=None):
-		super().__init__(request, cache_time, response)
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
 		self.modify = None  # Not supported for templates
 		self.delete = None  # Not supported for templates
 
@@ -56,7 +56,7 @@ class Templates(Icinga2Objects):
 
 class Template(Icinga2Object):
 	"""Representation of an Icinga2 template."""
-	def __init__(self, request, name, cache_time, response=None, results=None):
-		super().__init__(request, name, cache_time, response, results)
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
 		self.modify = None  # Not supported for templates
 		self.delete = None  # Not supported for templates

@@ -17,7 +17,7 @@ class Client(API):
 	@staticmethod
 	def create_response(response):
 		"""Return ResultSet with APIResponse with given response."""
-		return ResultsFromResponse(APIResponse(response))
+		return ResultsFromResponse(response=APIResponse(response))
 
 
 class StreamClient(API):
@@ -82,7 +82,7 @@ class Icinga2(API):
 	def results_from_query(request):
 		"""Returns a ResultsFromResponse from the given request."""
 		# Transformation to APIRequest is done by API.create_response (inherited)
-		return ResultsFromResponse(request())
+		return ResultsFromResponse(response=request())
 
 	def object_from_query(self, type_, request, name=None, **kwargs):
 		"""Get a appropriate python object to represent whatever is requested with the request.
@@ -98,14 +98,14 @@ class Icinga2(API):
 			return class_(request, **initargs)
 		if name is not None:
 			# it's one object if it has a name
-			return Icinga2Object(request, **initargs)
-		return Icinga2Objects(request, **initargs)
+			return Icinga2Object(reqeust=request)
+		return Icinga2Objects(reqeust=request)
 
 	def cached_results_from_query(self, request, **kwargs):
 		"""Get a CachedResultSet with the given request. Remaining kwargs are passed to the constructor."""
 		initargs = {"cache_time": self.cache_time}
 		initargs.update(kwargs)
-		return CachedResultSet(request, **initargs)
+		return CachedResultSet(request=request)  # TODO how to solve that???
 
 	def create_object(self, type_, name, attrs, templates=tuple(), ignore_on_error=False):
 		"""Create an Icinga2 object through the API."""

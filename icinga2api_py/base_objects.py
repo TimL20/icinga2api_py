@@ -4,21 +4,13 @@
 
 import logging
 
-import collections.abc
-from .results import CachedResultSet, ResultList, Result
+from .results import CachedResultSet, ResultList, SingleResultMixin
 
 
 class Icinga2Objects(CachedResultSet):
 	"""Object representing one or more Icinga2 configuration objects.
 	This class is a CachedResultSet, so a Request is used to (re)load the response its results on demand or after cache
 	expiry (time in seconds)."""
-	def __init__(self, request, cache_time, response=None, results=None, next_cache_expiry=None):
-		"""Init a Icinga2Objects representation from a request.
-		:param request The request whose results are represented.
-		:param cache_time Caching time in seconds.
-		:param response Optional already loaded response for the request.
-		:param results Optional already loaded results."""
-		super().__init__(request, cache_time, response, results, next_cache_expiry)
 
 	def result_as(self, index, class_):
 		"""Get single at given index result as a definded type (results.Result, Icinga2Object or Icinga2Object subclass)."""
@@ -124,21 +116,25 @@ class Icinga2ObjectList(ResultList):
 	A Icinga2ObjectList is built e.g. on slicing a Icinga2Objects object, or by creating it and adding objects."""
 
 
-class Icinga2Object(Result, Icinga2Objects):
+class Icinga2Object(SingleResultMixin, Icinga2Objects):
 	"""Object representing exactly one Icinga2 configuration object.
 	Do not use an object of this class with a request that may return more than one result. This can cause
 	trouble, and as other objects than the first one are ignored it's not possible to notice.
 	This class extends Icinga2Objects and Result, so it's Mapping and Sequence in one. On an iteration only the sequence
 	feature is taken into account (so only this one and only object is yield)."""
-	def __init__(self, request, name, cache_time, response=None, results=None, next_cache_expiry=None):
+
+	def __init__(self, results=None, request=None, response=None, json_kwargs=None,
+				cache_time=float("inf"), next_cache_expiry=None):
 		"""Init a Icinga2Object representation from a request.
-		:param request The request whose results are represented.
-		:param name The name of this object. This is used somewhere (not here).
-		:param cache_time Caching time in seconds.
-		:param response Optional response from this request if already loaded.
-		:param results Optional the one results object (represented) from a appropriate request if already loaded."""
-		# Call other super init first
-		Icinga2Objects.__init__(self, request, cache_time, response, results, next_cache_expiry)
-		# Call super init of Result, overwrite results
-		super().__init__(results)
-		self.name = name
+		:param results Optional the one results object (represented) from a appropriate request if already loaded
+		:param request The request whose results are represented
+		:param response Optional response from this request if already loaded
+		:param cache_time Caching time in seconds
+		:param next_cache_expiry Set the next cache expiry timestamp, or None
+		"""
+		super().__init__(results, request, response, json_kwargs, cache_time, next_cache_expiry)
+
+	@property
+	def name(self):
+		"""Name of this Icinga2Object."""
+		return self._raw["name"]  # TODO check if that's correct

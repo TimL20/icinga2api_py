@@ -5,6 +5,7 @@ This module contains all relevant stuff regarding the results attribute of an Ic
 
 import collections.abc
 import time
+import typing
 
 
 class ResultSet(collections.abc.Sequence):
@@ -69,7 +70,7 @@ class ResultSet(collections.abc.Sequence):
 
 	@staticmethod
 	def parse_attrs(attrs):
-		"""Parse attrs string. Split attrs on dots. Prefix with "attrs" if needed."""
+		"""Parse attrs string. Split attrs on dots."""
 		if not isinstance(attrs, str):
 			return attrs
 
@@ -175,11 +176,11 @@ class ResultSet(collections.abc.Sequence):
 
 class ResultsFromResponse(ResultSet):
 	"""ResultSet from a given APIResponse."""
-	def __init__(self, response, **json_kwargs):
+	def __init__(self, results=None, response=None, json_kwargs=None):
 		"""Init ResultsFromResponse object with a response. Optional give kwargs for JSON load."""
-		super().__init__()
+		super().__init__(results)
 		self._response = response
-		self._json_kwargs = json_kwargs
+		self._json_kwargs = json_kwargs or dict()
 
 	@property
 	def response(self):
@@ -188,7 +189,15 @@ class ResultsFromResponse(ResultSet):
 
 	def load(self):
 		"""Parse results of response."""
-		self._results = self.response.results(**self._json_kwargs)
+		try:
+			self._results = self.response.results(**self._json_kwargs)
+		except AttributeError:
+			super().load()
+
+	@property
+	def loaded(self):
+		"""True if a successful load has taken place."""
+		return self._response is not None and self._results is not None
 
 	def __str__(self):
 		"""Return short string representation."""
@@ -196,15 +205,13 @@ class ResultsFromResponse(ResultSet):
 		return "<{} with {} results, status {}>".format(self.__class__.__name__, res, self.response.status_code)
 
 
-class ResultsFromRequest(ResultSet):
+class ResultsFromRequest(ResultsFromResponse):
 	"""ResultSet loaded (once) on demand from a given request."""
-	def __init__(self, request, **json_kwargs):
+	def __init__(self, results=None, request=None, response=None, json_kwargs=None):
 		"""Init ResultsFromRequest object with a request. Optional give kwargs for JSON load."""
-		super().__init__()
+		super().__init__(results, response, json_kwargs)
 		self._request = request
-		self._response = None
 		self._results = None
-		self._json_kwargs = json_kwargs
 
 	@property
 	def request(self):
@@ -218,20 +225,12 @@ class ResultsFromRequest(ResultSet):
 			self._response = self._request()
 		return self._response
 
-	def load(self):
-		"""Parse results of response. Calls the response property to load the response from the request."""
-		self._results = self.response.results(**self._json_kwargs)
-
-	@property
-	def loaded(self):
-		"""True if a successful load has taken place."""
-		return self._response is not None and self._results is not None
-
 	def __eq__(self, other):
-		"""True if other is also a ResultsFromRequest object and they both have the same request."""
-		if not isinstance(other, ResultsFromRequest):
-			return NotImplemented
-		return self._request == other._request
+		"""True if other is also a ResultsFromRequest object and they both have the same request, or the superclass's
+		__eq__ returns True."""
+		if isinstance(other, ResultsFromRequest):
+			return self._request == other._request or super().__eq__(other)
+		return super().__eq__(other)
 
 	def __str__(self):
 		"""Return short string representation."""
@@ -244,15 +243,17 @@ class CachedResultSet(ResultsFromRequest):
 	the fact, that the underlying data can change at any time.
 	You can hold to temporarily disable cache reloading and drop to re-enable caching after hold.
 	A CachedResultSet also won't reload on cache expiry if used as a context manager (just "with cachedresultset:...")"""
-	def __init__(self, request, cache_time, response=None, results=None, next_cache_expiry=None):
+	def __init__(self, results=None, request=None, response=None, json_kwargs=None,
+				cache_time=float("inf"), next_cache_expiry=None):
 		"""ResultSet from Request with caching.
+		:param results Optional results as list if already loaded
 		:param request The request returning the represented results
+		:param response APIResponse for this request if already loaded
+		:param json_kwargs Keyword arguments to pass to the JSON decoder
 		:param cache_time Cache expiry time in seconds
-		:param response APIResponse for this request if already loaded.
-		:param results Optional results as list if already loaded."""
-		super().__init__(request)
-		self._response = response
-		self._results = results
+		:param next_cache_expiry Set the next cache expiry timestamp, or None
+		"""
+		super().__init__(results, request, response, json_kwargs)
 		self._expiry = cache_time
 		self._expires = next_cache_expiry or cache_time
 		self._hold = None
@@ -361,28 +362,43 @@ class ResultList(ResultSet, collections.abc.MutableSequence):
 		self.results.insert(index, value)
 
 
-class Result(ResultSet, collections.abc.Mapping):
-	"""Icinga2 API request result (one from results).
-	This class appears as a sequence with length one, also if more than one result is stored in the background.
-	The inheritance from Mapping does not make a difference for that."""
-	def __init__(self, results=None):
-		# Transform results into a tuple if it's not a Sequence (or None)
-		results = results if isinstance(results, collections.abc.Sequence) or results is None else (results,)
-		ResultSet.__init__(self, results)
+# Union is not exactly right here, but almost...
+SingleResultMixinType = typing.Union["SingleResultMixin", ResultSet]
 
-	def result(self, index):
-		"""Get the result. As a object of the Result class is a result, this method returns self or raises an IndexError."""
+
+class SingleResultMixin:
+	"""Mixin for ResultSet to represent exactly one instead of any number of results.
+	This class appears as a sequence with length one, but also is an immutable Mapping."""
+
+	def __init__(self: SingleResultMixinType, results=None, *args, **kwargs):
+		if isinstance(results, collections.abc.Sequence):
+			try:
+				results = (results[0], )
+			except IndexError:
+				results = tuple()
+		else:
+			results = (results, )
+
+		super().__init__(results, *args, **kwargs)
+
+	def result(self: SingleResultMixinType, index):
+		"""Get the result - which is always this object itself."""
 		if isinstance(index, int) and index >= len(self):
 			# It's a sized container...
 			raise IndexError
+		if isinstance(index, slice):
+			# Make sure that only one object is returned by slicing a made-up example tuple
+			example = (True,).__getitem__(index)
+			return [self] if any(example) else list()
+
 		return self
 
 	@property
-	def _raw(self):
+	def _raw(self: SingleResultMixinType):
 		"""Get the "raw" result as a dictionary. Meant for internal use only."""
 		return self.results[0]
 
-	def __getitem__(self, item):
+	def __getitem__(self: SingleResultMixinType, item):
 		"""Implements Mapping and sequence access in one."""
 		if isinstance(item, int) or isinstance(item, slice):
 			return self.result(item)
@@ -396,24 +412,26 @@ class Result(ResultSet, collections.abc.Mapping):
 		except (KeyError, ValueError):
 			raise KeyError("No such key: {}".format(item))
 
-	def __contains__(self, key):
-		"""Whether there is a value for the given key."""
+	def __contains__(self: SingleResultMixinType, item):
+		"""Whether there is a value for the given key, or the value is in the results list."""
 		try:
-			self[key]
+			self[item]
 		except (KeyError, IndexError):
-			return False
+			pass
 		else:
 			return True
 
-	def keys(self):
+		return item == self
+
+	def keys(self: SingleResultMixinType):
 		"""A set-like object providing a view on the Results keys."""
 		return collections.abc.KeysView(self._raw)
 
-	def items(self):
+	def items(self: SingleResultMixinType):
 		"""A set-like object providing a view on D's items."""
 		return collections.abc.ItemsView(self._raw)
 
-	def values(self, attr=None, raise_nokey=False, nokey_value=None):
+	def values(self: SingleResultMixinType, attr=None, raise_nokey=False, nokey_value=None):
 		"""Return all values of the given attribute as list.
 		:param attr Attribute (usually as a string) - or None to get a complete ValuesView of the Result mapping items.
 		:param raise_nokey True to immediately reraise catched KeyError
@@ -423,11 +441,15 @@ class Result(ResultSet, collections.abc.Mapping):
 		else:
 			return ResultSet.values(self, attr, raise_nokey, nokey_value)
 
-	def __len__(self):
+	def __len__(self: SingleResultMixinType):
 		"""Length of this sequence - this is always 1."""
 		return 1
 
-	def __iter__(self):
+	def __iter__(self: SingleResultMixinType):
 		"""Iterate of the "sequence" item (this one and only object).
 		This is not useful for this class, but to avoid trouble caused by inheriting of Sequence."""
 		yield self
+
+
+class Result(SingleResultMixin, ResultSet):
+	"""Icinga2 API request result (one from results)."""
