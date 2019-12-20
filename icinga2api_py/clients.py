@@ -98,14 +98,14 @@ class Icinga2(API):
 			return class_(request, **initargs)
 		if name is not None:
 			# it's one object if it has a name
-			return Icinga2Object(reqeust=request)
-		return Icinga2Objects(reqeust=request)
+			return Icinga2Object(request=request)
+		return Icinga2Objects(request=request)
 
 	def cached_results_from_query(self, request, **kwargs):
 		"""Get a CachedResultSet with the given request. Remaining kwargs are passed to the constructor."""
 		initargs = {"cache_time": self.cache_time}
 		initargs.update(kwargs)
-		return CachedResultSet(request=request)  # TODO how to solve that???
+		return CachedResultSet(request=request, **initargs)
 
 	def create_object(self, type_, name, attrs, templates=tuple(), ignore_on_error=False):
 		"""Create an Icinga2 object through the API."""

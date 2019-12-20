@@ -113,28 +113,28 @@ class Icinga2ObjectList(ResultList):
 	Icinga2Objects they are handled as one results list from a request/response.
 	This way it's possible to add objects to a Icinga2ObjectList.
 	On the other hand, operations (actions, modify, delete) must be handled for every single object.
-	A Icinga2ObjectList is built e.g. on slicing a Icinga2Objects object, or by creating it and adding objects."""
+	A Icinga2ObjectList is built e.g. on slicing a Icinga2Objects object, or by creating it and adding objects.
+	"""
+
+	# Here the implementations of action(), modify() and delete() as in Icinga2Objects should go...
 
 
 class Icinga2Object(SingleResultMixin, Icinga2Objects):
 	"""Object representing exactly one Icinga2 configuration object.
 	Do not use an object of this class with a request that may return more than one result. This can cause
 	trouble, and as other objects than the first one are ignored it's not possible to notice.
-	This class extends Icinga2Objects and Result, so it's Mapping and Sequence in one. On an iteration only the sequence
-	feature is taken into account (so only this one and only object is yield)."""
+	This class extends Icinga2Objects with the SingleResultMixin, so it's Mapping and Sequence in one.
+	"""
 
-	def __init__(self, results=None, request=None, response=None, json_kwargs=None,
-				cache_time=float("inf"), next_cache_expiry=None):
+	def __init__(self, results=None, response=None, request=None, json_kwargs=None):
 		"""Init a Icinga2Object representation from a request.
 		:param results Optional the one results object (represented) from a appropriate request if already loaded
 		:param request The request whose results are represented
 		:param response Optional response from this request if already loaded
-		:param cache_time Caching time in seconds
-		:param next_cache_expiry Set the next cache expiry timestamp, or None
 		"""
-		super().__init__(results, request, response, json_kwargs, cache_time, next_cache_expiry)
+		super().__init__(results, response, request, json_kwargs)
 
 	@property
 	def name(self):
 		"""Name of this Icinga2Object."""
-		return self._raw["name"]  # TODO check if that's correct
+		return self._raw["name"]
