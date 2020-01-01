@@ -33,9 +33,15 @@ class Icinga2Objects(CachedResultSet):
 		res = super().result(index)
 		# Build request for single object with filter string
 		mquery = self._request.clone()
+		# TODO this won't work for services
 		fstring = "{}.name==\"{}\"".format(res["type"].lower(), res["name"])
 		mquery.json = {"filter": fstring}
-		return class_(mquery, res["name"], self.cache_time, results=res, next_cache_expiry=self._expires)
+		return class_(
+			results=res,
+			request=mquery,
+			cache_time=self.cache_time,
+			next_cache_expiry=self._expires
+		)
 
 	def result(self, index):
 		"""Return the Icinga2Object at this index."""
@@ -125,14 +131,6 @@ class Icinga2Object(SingleResultMixin, Icinga2Objects):
 	trouble, and as other objects than the first one are ignored it's not possible to notice.
 	This class extends Icinga2Objects with the SingleResultMixin, so it's Mapping and Sequence in one.
 	"""
-
-	def __init__(self, results=None, response=None, request=None, json_kwargs=None):
-		"""Init a Icinga2Object representation from a request.
-		:param results Optional the one results object (represented) from a appropriate request if already loaded
-		:param request The request whose results are represented
-		:param response Optional response from this request if already loaded
-		"""
-		super().__init__(results, response, request, json_kwargs)
 
 	@property
 	def name(self):

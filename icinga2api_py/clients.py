@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""This module will contain almost all of the different Icinga2 API clients."""
+"""This module contains some different useful client classes for getting in touch with the Icinga2 API."""
 
 import json
+
 from .api import API
 from .models import Query, APIResponse, APIRequest
 from .results import ResultsFromResponse, CachedResultSet, Result
@@ -10,30 +11,35 @@ from . import objects
 
 
 class Client(API):
-	"""Icinga2 API client for non-streaming content, without objects."""
-	def __init__(self, url, **sessionparams):
-		super().__init__(url, **sessionparams)
+	"""Standard Icinga2 API client for non-streaming content."""
 
-	@staticmethod
-	def create_response(response):
-		"""Return ResultSet with APIResponse with given response."""
-		return ResultsFromResponse(response=APIResponse(response))
+	def __init__(self, url, results_class=None, **sessionparams):
+		super().__init__(url, **sessionparams)
+		self.results_class = results_class or ResultsFromResponse
+
+	def create_response(self, response):
+		"""Return appropriate ResultSet object.."""
+		return self.results_class(response=APIResponse(response))
 
 
 class StreamClient(API):
 	"""Icinga2 API client for streamed content."""
+
 	def __init__(self, url, **sessionparams):
 		sessionparams["stream"] = True
 		super().__init__(url, **sessionparams)
 
-	@staticmethod
-	def create_response(response):
-		"""APIResponse doesn't work here, because it uses __getstate__, which waits until the whole content is consumed
-		- something that propably does never happen in this case."""
-		return StreamClient.ResponseStream(response)
+	def create_response(self, response):
+		"""Create a stream of Result objects.
 
-	class ResponseStream:
+		APIResponse doesn't work here, because it uses __getstate__, which waits until the whole content is consumed
+		- something that propably does never happen in this case.
+		"""
+		return self.ResultsStream(response)
+
+	class ResultsStream:
 		"""Return Result objects for streamed lines."""
+
 		def __init__(self, response):
 			self._response = response
 
@@ -58,25 +64,23 @@ class StreamClient(API):
 
 
 class Icinga2(API):
-	"""A client for the object oriented part."""
+	"""An object oriented Icinga2 API client."""
+
 	def __init__(self, url, cache_time=float("inf"), **sessionparams):
 		super().__init__(url, **sessionparams)
 		self.cache_time = cache_time
-		self.request_class = Query
+
+	@property
+	def request_class(self):
+		return Query
 
 	def client(self):
-		"""Get non-OOP interface client."""
-		client = Client.clone(self)
-		client.create_response = Client.create_response
-		client.request_class = APIRequest
-		return client
+		"""Get standard client."""
+		return Client.clone(self)
 
 	def api(self):
 		"""Get basic API client."""
-		api = API.clone(self)
-		api.create_response = API.create_response
-		api.request_class = APIRequest
-		return api
+		return API.clone(self)
 
 	@staticmethod
 	def results_from_query(request):
@@ -95,11 +99,11 @@ class Icinga2(API):
 			initargs["name"] = name
 		initargs.update(kwargs)
 		if class_ is not None:
-			return class_(request, **initargs)
+			return class_(request=request, **initargs)
 		if name is not None:
 			# it's one object if it has a name
-			return Icinga2Object(request=request)
-		return Icinga2Objects(request=request)
+			return Icinga2Object(request=request, **initargs)
+		return Icinga2Objects(request=request, **initargs)
 
 	def cached_results_from_query(self, request, **kwargs):
 		"""Get a CachedResultSet with the given request. Remaining kwargs are passed to the constructor."""

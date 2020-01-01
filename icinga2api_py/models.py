@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
-"""This module provides objects important for functionality."""
+"""This module contains classes essential for sending requests and receiving responses.
+
+A long time ago, the classes of this module were the `api` module. The classes are used in that essential module as
+requests and responses to/from the Icinga2 API.
+"""
 
 import logging
 import collections.abc
@@ -8,11 +12,25 @@ from . import exceptions
 
 
 class APIRequest(Request):
-	"""A ready-to-call API request specialised for the Icinga2 API."""
+	"""Apecialised requests that may be sent to the Icinga2 API.
+
+	Mainly, objects of this cladd have the following features:
+	- method_override property for the 'X-HTTP-Method-Override' header field, while the HTTP method is set to POST
+		unless explicitely changed.
+	- On prepare(), the APIRequest is prepared using an API object (which is a requests.Session)
+	- The APIRequest gets prepared and sent when the object gets called (which will also return an appropriate response
+		of course).
+	"""
+
 	attrs = ("method", "url", "headers", "files", "data", "params", "auth", "cookies", "hooks", "json")
 
 	def __init__(self, api, *args, **kwargs):
-		"""Initiate a APIRequest with an API object. *args and **kwargs are passed to request.Request's init."""
+		"""Initiate an APIRequest with an API object.
+
+		:param api: API object, used to prepare the request (using the requests Session feature)
+		:param *args: Get passed to the super constructor
+		:param **kwargs: Get passed to the super constructor
+		"""
 		super().__init__(*args, **kwargs)
 
 		# Client is supposed to be a api.API instance, which inherits from requests.Session
@@ -28,10 +46,7 @@ class APIRequest(Request):
 	@property
 	def method_override(self):
 		"""The X-HTTP-Method_Override header field value."""
-		try:
-			return self.headers['X-HTTP-Method-Override']
-		except KeyError:
-			return None
+		return self.headers.get("X-HTTP-Method-Override")
 
 	@method_override.setter
 	def method_override(self, method):
@@ -50,30 +65,41 @@ class APIRequest(Request):
 
 	def __eq__(self, other):
 		"""True if all attributes of these two APIRequests are the same."""
-		for attr in self.attrs:
-			if not getattr(self, attr, None) == getattr(other, attr, None):
-				return False
-		return True
+		return all((getattr(self, attr, None) == getattr(other, attr, None) for attr in self.attrs))
 
 	def prepare(self):
 		"""Construct a requests.PreparedRequest with the API (client) session."""
 		return self.api.prepare_request(self)
 
-	def __call__(self, *args, **params):
-		"""Call the request object to prepare and immediately send this request.
-		keyword arguments do update params of request. The request is send with use of the API (session) object."""
-		self.params.update(params)  # Update URL parameters optionally
+	def send(self, params):
+		"""Send this request.
+
+		The request gets prepared before sending. Given keyword arguments are merged into the URL parameters.
+		The returned response is created via create_response() of the API object.
+		:param params: Parameters to merge into the URL parameters.
+		:return: A response created by create_response() of the API object.
+		"""
+		# Update URL parameters (optional)
+		self.params.update(params)
 		logging.getLogger(__name__).debug("API %s request to %s with %s", self.method_override, self.url, self.json)
-		# Prepare the request
+		# Get a prepared request
 		request = self.prepare()
 		# Take environment variables into account
 		settings = self.api.merge_environment_settings(request.url, None, None, None, None)
 		r = self.api.send(request, **settings)
 		return self.api.create_response(r)
 
+	def __call__(self, *args, **params):
+		"""Send this request, see send()."""
+		return self.send(params)
+
 
 class Query(APIRequest):
-	"""Helper class to return an appropriate object for a query."""
+	"""Helper class to return an appropriate object for a query.
+
+	This class is part of the object oriented layer of the API (client "Icinga"). It suffers from bad design and will
+	hopefully improve somewhen in the future, or may be removed.
+	"""
 
 	# Information where to find the object type and name for which URL schema
 	# If None, than the result is supposed to be a results.ResultsFromResponse
@@ -139,14 +165,16 @@ class Query(APIRequest):
 
 class APIResponse(Response):
 	"""Represents a response from the Icinga2 API."""
+
 	def __init__(self, response):
 		super().__init__()
 		self.__setstate__(response.__getstate__())
 
 	def __eq__(self, other):
-		if not isinstance(other, Response):
+		try:
+			return self.__getstate__() == other.__getstate__()
+		except AttributeError:
 			return NotImplemented
-		return self.__getstate__() == other.__getstate__()
 
 	def json(self, **kwargs):
 		"""JSON encoded content of the response (if any). Returns None on error."""
