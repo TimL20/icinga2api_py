@@ -1,5 +1,5 @@
 # StreamClient
-The class `icinga2api_py.StreamClient` is a subclass of `API` (usage described in "Basic API Client").
+The class `StreamClient` is a subclass of `API` (usage described in "Basic API Client").
 Making requests with this client works exactly the same as with `API` or also the non-streaming `Client`.
 The StreamClient, as the name may suggest, adds the ability to easily consume streamed content.
 For Icinga this is important for the Event Streams, which allow to subscribe to an event type and receive
@@ -16,10 +16,10 @@ with streamclient.events.types(["CheckResult"]).queue("abcdefg").post() as strea
 			break
 ```
 
-In the first line a request is made, and the returned `icinga2api_py.StreamClient.ResponseStream` is
+In the first line a request is made, and the returned `StreamClient.ResultStream` is
 assigned to the variable stream. The stream (connection) is closed as soon as close() is called;
-what is also done when leaving the with block, so the with-statement is the preffered way of doing this.
-The `ResponseStream` is an iterable, that returns a `icinga2api_py.Result` for each received line (event).
+which is also done when leaving the with block, so the with-statement is the preffered way of doing this.
+The `ResultStream` is an iterable, that returns a `Result` for each received line (event).
 
-The StreamClient just returns every line received as a `Result`, so it will also work on non-streamed content,
-but the returned `Result` objects are propably different from that of the non-streaming client.
+As the StreamClient just returns every line received as a `Result`, so it will also work on non-streamed content,
+but the returned `Result` objects are different from that of the non-streaming client.

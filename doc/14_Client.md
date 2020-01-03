@@ -9,20 +9,20 @@ That why, this documentation chapter contains much more content about results th
 
 A `ResultSet` object represents a set of results returned from the Icinga2 API. This class is not an ABC (abstract base
 class), although it's not meant to be instanciated (rarely useful).
-`ResultSet` implements lot's of feature fro inspecting results from Icinga2:
+`ResultSet` implements lot's of feature for inspecting results from Icinga2:
 - It's a sequence. The "items" are `Result` objects (built on demand). You can get those `Result`s by their index or
  iterate over them. It's possible to get the results "naked" as a list via the `results` property, however this is
  usually not really useful outside the library.
 - It's instead much more useful to slice a `ResultSet`. Another `ResultSet` is returned.
 - Every `ResultSet` has a `load` method and a `loaded` property, both without any meaning a general `ResultSet`.
-- The `values` method will return all values of one attribute for or results as a list. You can specify what to do if
- the attribute does not exist for an attriute (raise_nokey and nokey_value parameters).
+- `fields` is a generator that yields all values of one attribute of all results in the `ResultSet`. You can specify
+  what to do if the attribute does not exist for an attribute (raise_nokey and nokey_value parameters).
 - The `where` method returns all items (results), that have a expected value as an attribute. The expected value must
  have the same type. If a result does not have the attrite, the attribute value, the value is handled as if it's a
  `KeyError` class (not an object, the class itself).
-- The `number` methods counts, how many items (results) have an expected value.
-- The `are_all` method returns True, if all items (results) have an expected value.
-- The `min_one` method returns True, if minimum one item (result) has an expected value.
+- The `number` methods counts, how many items (results) have an expected value for a particular attribute.
+- The `all` method returns True, if all items (results) have an expected value for a particular attribute.
+- The `any` method returns True, if minimum one item (result) has an expected value  for a particular attribute.
 - The `min_max` method returns True, if minuimum &lt;min&gt; and maximum &lt;max&gt; items (results) have an expected
  value.
 
@@ -70,11 +70,9 @@ value = res["attrs"]["last_check_result"]["output"]
 # Is the same as
 value = res["attrs.last_check_result.output"]
 ```
-Objects of this classes are mappings *and* sequences.
-- Therefore the values method has not only the functionality from `ResultSet` but also that from a mapping (returning
-  a ValuesView). Just pass no arguments for the second.
-- The length is always 1 (use `len(result.keys())` to get the number of keys)
-- Iterating will always just yield the object itself (exactly one time) - this is the sequence behavior.
+Objects of this classes behave like mappings *and* sequences.
+- The length is always 1 (use `len(result.keys())` to get the number of keys) - sequence behavior
+- Iterating will always just yield the object itself (exactly one time) - this is the sequence behavior
 
 ## Examples
 
@@ -88,7 +86,7 @@ pid = appstatus[0]["status"]["icingaapplication"]["app"]["pid"]  # Get something
 print("Icinga runs with PID {}".format(int(pid)))  # int() as all JSON numbers are float by default
 
 
-# Get one ResultsFromResponse containing every host Icinga knows (possibly bad idea on large system)
+# Get one ResultsFromResponse containing every host Icinga knows (possibly bad idea on a large system)
 hosts = client.objects.hosts.get()
 # Iterate over all hosts
 for host in hosts:
@@ -111,7 +109,7 @@ if hosts.min_one("attrs.state", 1):
     print("At least one host is down")
 
 # List host names of hosts, that are down
-down = hosts.where("attrs.state", 1).values("name")
+down = hosts.where("attrs.state", 1).fields("name")
 print("The following host(s) are down: {}".format(", ".join(down)))
 
 
@@ -119,5 +117,5 @@ print("The following host(s) are down: {}".format(", ".join(down)))
 localhost["attrs.last_check_result.output"]  # Output of last check result
 ```
 
-These are just some examples. You usually don't want to use these things as described above. But they are
-fine, and: they are also available when using the OOP interface (because of inheritance).
+These are just some examples. You may not want to use these things as described above. But they are
+fine, and: they are also available when using the layers above this layer (because of inheritance).

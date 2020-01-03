@@ -2,7 +2,7 @@
 There is a very basic API client in icinga2api_py.api named API, which is a usefull wrapper around
 [requests](https://github.com/requests/requests). This client is there to make building a request for the Icinga2 API
 easy. By default, the requests and responses built by this Client are `models.APIRequest`s and
-`models.APIResponse`s. The APIResponse object is the really similar to the Response object returned from a requests
+`models.APIResponse`s. The `APIResponse` object is the really similar to the Response object returned from a requests
 request to the Icinga2 API (and that is not a coincidence).
 The Client uses and inherits from requests.Session, this way data like e.g. authentication data is stored for all
 requests done with this client.
@@ -17,7 +17,7 @@ from icinga2api_py import API
 apiclient = API(url, **sessionparams)
 
 # Alternative constructor
-apiclient = API.from_pieces(host, port, url_prefix, **sessionparams)
+apiclient = API.from_pieces(host, [port], [url_prefix], **sessionparams)
 
 # Examples
 apiclient = API("https://icingahost:5665/v1/", auth=("user", "pass"), verify="./icingahost.ca")
@@ -25,13 +25,13 @@ apiclient = API("https://icingahost:5665/v1/", auth=("user", "pass"), verify="./
 apiclient = API.from_pieces("icingahost", auth=("user", "pass"), verify="./icingahost.ca")
 ```
 
-- The url is the Icinga2 API URL endpoint base including the versioning. Example:
+- The url is the Icinga2 API URL endpoint base including the API version. Example:
  https://localhost:5665/v1/
-- With the alternative constructor the URL is built from host, port and url_prefix.
+- With the alternative constructor the URL is built from host and optional port and url_prefix.
  This is usefull, as port and url_prefix have default values (5665 and "/v1") here.
 - The sessionparams (keyword arguments) are key-value-pairs of attributes for the Session. Every requests.Session
  attribute is possible. It is important to use it for authentication. Authentication is  passed here (both basic or
- certificates are supported).
+ certificates are supported). Other attributes are e.g. verify (Certificate verification) or proxy.
 
 ## Building a Request to a URL
 
@@ -48,12 +48,12 @@ HTTP method. Let's look closer at this:
 ```
 <apiclient object>    .     status      .     IcingaApplication    .    get          ()
 ```
-It just means:
+The space and dot separated parts of this line say the following:
 - Use this initialized API client (that's obvious) which knows things as the base URL and authentication
 - Add /status to the known base URL
 - Add /IcingaApplication to the URL
 - Override HTTP method with GET (X-HTTP-Method-Override is used)
-- Fire the request (these are the brackets, as a APIRequest fires when it's called)
+- Fire the request (these are the brackets, as an `APIRequest` object sends the request whenever it's called)
 
 So that will just build the URL &lt;baseurl&gt;/status/IcingaApplication, overrides the HTTP method with get and fires
 the request (on the API session). If you like to look closer, leave out the brackets after the HTTP method, that will
