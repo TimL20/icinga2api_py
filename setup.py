@@ -8,7 +8,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
 	name="icinga2api_py",
-	version="0.6.17",
+	version="0.6.18",
 	author="TimL20",
 	description="Icinga2 API client for Python",
 	long_description=long_description,

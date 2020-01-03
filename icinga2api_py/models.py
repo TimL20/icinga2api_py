@@ -10,6 +10,8 @@ import collections.abc
 from requests import Request, Response
 from . import exceptions
 
+LOGGER = logging.getLogger(__name__)
+
 
 class APIRequest(Request):
 	"""Apecialised requests that may be sent to the Icinga2 API.
@@ -81,7 +83,7 @@ class APIRequest(Request):
 		"""
 		# Update URL parameters (optional)
 		self.params.update(params)
-		logging.getLogger(__name__).debug("API %s request to %s with %s", self.method_override, self.url, self.json)
+		LOGGER.debug("API %s request to %s with %s", self.method_override, self.url, self.json)
 		# Get a prepared request
 		request = self.prepare()
 		# Take environment variables into account
@@ -128,6 +130,11 @@ class Query(APIRequest):
 		"""Get a object representing the result of this query."""
 		# Get request for this query
 		request = self.request()
+		if request.method not in ("POST", "GET") or request.method_override != "GET":
+			# HTTP method is not GET and not overriden with GET, so this query is a modify request
+			# Immediatelly send this request and return the result
+			return self.send(kwargs)
+
 		# Cut base url
 		url = self.url[self.url.find(self.api.base_url)+len(self.api.base_url):]
 		# Split by /
@@ -150,7 +157,7 @@ class Query(APIRequest):
 		type_ = type_[:-1] if name is not None and type_[-1:] == "s" else type_
 		# Append letter 's' if it's not a single object (= name not known) - only to avoid confusion...
 		type_ = type_ + 's' if name is None and type_[-1] != "s" else type_
-		logging.getLogger(__name__).debug("Assumed type %s and name %s from URL %s", type_, name, self.url)
+		LOGGER.debug("Assumed type %s and name %s from URL %s", type_, name, self.url)
 
 		if "name" in kwargs:
 			name = kwargs["name"]
