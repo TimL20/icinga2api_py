@@ -6,14 +6,50 @@ import logging
 
 from .results import CachedResultSet, ResultList, SingleResultMixin
 
+LOGGER = logging.getLogger(__name__)
+
+
+def objects_filter(type_, object_names):
+	"""Create a filter for the Icinga API that filters for the objects given by name (as sequence of strings) and
+	type (just one string describing the type of all the objects).
+
+	:returns The filter as a string, or None if filter construction was not possible.
+	"""
+	type_ = type_.lower()
+	if type_ == "service":
+		# Services are objects that are specified as <host>!<service>
+		host_service_pairs = (name.split('!', 1) for name in object_names)
+		fstringbuilder = (
+			"(host.name==\"{}\" && service.name==\"{}\")".format(host, service)
+			for host, service in host_service_pairs
+		)
+	else:
+		# Default is the simplest possible filter: <type>.name=="<name>"
+		fstringbuilder = (
+			"{}.name==\"{}\"".format(type_, obj)
+			for obj in object_names
+		)
+
+	return " || ".join(fstringbuilder) or None
+
 
 class Icinga2Objects(CachedResultSet):
 	"""Object representing one or more Icinga2 configuration objects.
 	This class is a CachedResultSet, so a Request is used to (re)load the response its results on demand or after cache
 	expiry (time in seconds)."""
 
+	@property
+	def type(self):
+		"""The Icinga object type."""
+		return self[0]["type"]
+
+	def objects_filter(self):
+		"""Get a Icinga API filter that filters for the objects of self."""
+		return objects_filter(self.type, (obj["name"] for obj in self))
+
 	def result_as(self, index, class_):
-		"""Get single at given index result as a definded type (results.Result, Icinga2Object or Icinga2Object subclass)."""
+		"""Get single result at given index as a given definded type (results.Result, Icinga2Object or Icinga2Object
+		subclass)."""
 		if not issubclass(class_, Icinga2Object):
 			# New object with result from parent class
 			# Handles slicing
@@ -33,8 +69,7 @@ class Icinga2Objects(CachedResultSet):
 		res = super().result(index)
 		# Build request for single object with filter string
 		mquery = self._request.clone()
-		# TODO this won't work for services
-		fstring = "{}.name==\"{}\"".format(res["type"].lower(), res["name"])
+		fstring = objects_filter(res["type"], (res["name"],))
 		mquery.json = {"filter": fstring}
 		return class_(
 			results=res,
@@ -60,28 +95,16 @@ class Icinga2Objects(CachedResultSet):
 		method will only handle hosts and services."""
 		if len(self) < 1:
 			return None
-		type = self[0]["type"].lower()
-		names = [obj["name"] for obj in self]
-		logging.getLogger(__name__).debug("Processing action {} for {} objects of type {}".format(action, len(names), type))
-		if type == "host":
-			# Hosts filters are quite simple
-			fstring = "host.name==\"{}\"".format("\" || host.name==\"".join(names))
-		elif type == "service":
-			# Services are objects that are specified as <host>!<service>
-			host_service_pairs = [name.split('!', 1) for name in names]
-			fstringbuilder = [
-				"(host.name==\"{}\" && service.name==\"{}\")".format(host, service)
-				for host, service in host_service_pairs
-			]
-			fstring = " || ".join(fstringbuilder)
-		else:
-			raise ValueError("Action on objects only allowed for host or service object")
+		type_ = self.type
+		names = (obj["name"] for obj in self)
+		LOGGER.debug("Processing action {} for {} objects of type {}".format(action, len(self), type_))
+		fstring = objects_filter(self.type, names)
 
 		if not fstring:
 			return None
 
 		# self._request.api = Icinga2 (client) instance
-		query = self._request.api.actions.s(action).type(type.title()).filter(fstring)
+		query = self._request.api.actions.s(action).type(type_.title()).filter(fstring)
 		for parameter, value in parameters.items():
 			query = query.s(parameter)(value)
 		return query.post()
