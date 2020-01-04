@@ -6,7 +6,7 @@ This library consists of different "layers" and parts, that serve different need
                         |          IOM            |
                         | (Icinga object mapping) |
 +------------------+    |                         |
-|     OO-Layer     |    | subpackage iom          |
+|    Simple-OO     |    | subpackage iom          |
 | (Client: Icinga) |    | (Client: iom.Session)   |
 +------------------+----+-------------------------+
 |              Result-centered layer              |
@@ -36,10 +36,10 @@ In the following section, each layer should get a short introduction.
 - Focuses on getting the results of the Icinga API responses
 - Also provides methods to easily work with the results, and optional features such as load-on-demand and caching
 
-# OO-Layer
+## Simple-OO layer
 - "Object oriented" layer
 - Makes working with Icinga configuration objects easier, e.g. provides methods to modify or delete such an object
 
-# IOM
+## IOM
 - "Icinga object mapping" aims to map every object in Icinga to an appropriate Python object
 - In development, not really working yet

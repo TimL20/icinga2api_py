@@ -4,7 +4,7 @@
 
 import logging
 
-from .results import CachedResultSet, ResultList, SingleResultMixin
+from ..results import CachedResultSet, ResultList, SingleResultMixin
 
 LOGGER = logging.getLogger(__name__)
 

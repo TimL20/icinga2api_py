@@ -3,7 +3,7 @@
 """
 
 import logging
-from .base_objects import Icinga2Objects, Icinga2Object
+from ..simple_oo.base_objects import Icinga2Objects, Icinga2Object
 
 
 class Host(Icinga2Object):

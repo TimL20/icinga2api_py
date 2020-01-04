@@ -97,26 +97,9 @@ class APIRequest(Request):
 
 
 class Query(APIRequest):
-	"""Helper class to return an appropriate object for a query.
+	"""A query that has the ability to do different things for different requests."""
 
-	This class is part of the object oriented layer of the API (client "Icinga"). It suffers from bad design and will
-	hopefully improve somewhen in the future, or may be removed.
-	"""
-
-	# Information where to find the object type and name for which URL schema
-	# If None, than the result is supposed to be a results.ResultsFromResponse
-	TYPES_AND_NAMES = {
-		"objects": (1, 2),  # /objects/<type>/<name>
-		"templates": (0, 2),  # /templates/<temptype>/<name> -> type=template(s)
-		"variables": (0, 1),  # /variables/<name>
-		"status": (0, 1),  # /status/<statustype>
-		"types": (0, 1),  # /types/<type>
-		"actions": None,  # not an object
-		"console": None,  # not an object
-		"config": None,  # not really objects...
-	}
-
-	def request(self):
+	def request(self, params=None):
 		"""Get an APIRequest equivalent to this Query."""
 		request = APIRequest(self.api)
 		for attr in APIRequest.attrs:
@@ -124,50 +107,23 @@ class Query(APIRequest):
 			# Copy Mappings (e.g. headers)
 			val = dict(val) if isinstance(val, collections.abc.Mapping) else val
 			setattr(request, attr, val)
+		# Update GET parameters
+		if params:
+			request.params.update(params)
 		return request
 
 	def __call__(self, *args, **kwargs):
-		"""Get a object representing the result of this query."""
-		# Get request for this query
-		request = self.request()
-		if request.method not in ("POST", "GET") or request.method_override != "GET":
-			# HTTP method is not GET and not overriden with GET, so this query is a modify request
-			# Immediatelly send this request and return the result
-			return self.send(kwargs)
+		"""Let a handler return the "handled" request."""
+		return self.handler()(self.request(kwargs))
 
-		# Cut base url
-		url = self.url[self.url.find(self.api.base_url)+len(self.api.base_url):]
-		# Split by /
-		url = "" if not url else url.split("/")
-		basetype = url[0]
-		if basetype in self.TYPES_AND_NAMES:
-			if self.TYPES_AND_NAMES[basetype] is None:
-				# Not an object, so don't return an object
-				return self.api.results_from_query(request)  # Fire APIRequest
+	def handler(self):
+		"""Get a callable to give the request to."""
+		return self.handle_request
 
-			# Information about type and name in URL is known
-			type_ = url[self.TYPES_AND_NAMES[basetype][0]]
-			namepos = self.TYPES_AND_NAMES[basetype][1]
-			name = url[namepos] if len(url) > namepos > 0 else None
-		else:
-			# Default type guessing, should work
-			type_ = basetype
-			name = None
-		# Cut last letter 's' of plural form if name is known (= if single object)
-		type_ = type_[:-1] if name is not None and type_[-1:] == "s" else type_
-		# Append letter 's' if it's not a single object (= name not known) - only to avoid confusion...
-		type_ = type_ + 's' if name is None and type_[-1] != "s" else type_
-		LOGGER.debug("Assumed type %s and name %s from URL %s", type_, name, self.url)
-
-		if "name" in kwargs:
-			name = kwargs["name"]
-			del kwargs["name"]
-
-		# Distinct between objects and results
-		if basetype == "objects":
-			return self.api.object_from_query(type_, request, name, **kwargs)
-		else:
-			return self.api.cached_results_from_query(request, **kwargs)
+	@staticmethod
+	def handle_request(request):
+		"""Default handler: send the request, returns a response from api.create_response()."""
+		return request.send()
 
 
 class APIResponse(Response):
@@ -175,6 +131,7 @@ class APIResponse(Response):
 
 	def __init__(self, response):
 		super().__init__()
+		# TODO find out if there is a better way than just copy every important attribute
 		self.__setstate__(response.__getstate__())
 
 	def __eq__(self, other):

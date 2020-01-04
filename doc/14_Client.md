@@ -1,9 +1,12 @@
 # Client
-The class `icinga2api_py.Client` is a subclass of `API` (usage described in "Basic API Client"). This client changes
-only one thing: it overrides the `create_response` method and returns a `ResultsFromResponse` object instead of an
-`APIResponse`.
-So everything stays the same, but you get parsed responses instead of the responses directly from requests.
-That why, this documentation chapter contains much more content about results than about the client itself.
+The class `Client` is a subclass of `API` (usage described in "Basic API Client").
+This client uses a special query to create an object containg the result(s) of a query (instead of the default
+`APIResponse`).
+The class of the objects returned can be specified with the results_class parameter of the `Client` constructor.
+By default, the class is `ResultsFromResponse`, but `ResultsFromRequest` and `CachedResultSet` are also supported.
+
+No matter which of these classes used, with this client parsed responses are returned. That why, this chapter gives
+some information about these objects returned from each query with the client.
 
 ## ResultSet
 
