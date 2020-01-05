@@ -18,10 +18,9 @@ The session module contains the classes `Session` (inherits from `API`) and `IOM
 - types is a `Types` object of the `types` module
 
 On calling a `IOMQuery` object (created on a query with a `Session` object), it returns
-- the result of `__call__()` of the superclass **if** the API (URL) endpoint does not start with "/objects", **otherwise**
-- The result of the called approriate `APIRequest` object **if** the HTTP method is POST or DELETE
-- A newly created class of an approriate class (got via the types attribute of the session) **if** the HTTP method is
-  GET
+- An `APIResponse` object **if** the HTTP method is not GET
+- The results as a `CachedResultSet` object, **if** the URL endpoint does not start with "/objects"
+- Otherwise: A newly created object of an approriate class (got via the types attribute of the session)
 
 ## types
 
