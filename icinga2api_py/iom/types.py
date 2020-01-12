@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""This module is for creating the Icinga object types as Python classes."""
+"""This module is responsible for creating the Icinga object types as Python classes."""
 
 import threading
 from ..results import CachedResultSet, Result
-from .attribute_value_types import Array, Dictionary, Timestamp, create_native_attribute_value_type
-from .objects import IcingaObject, IcingaObjects, IcingaConfigObject, IcingaConfigObjects
-from .base import Number
+from .simple_types import Array, Dictionary, Timestamp, create_native_attribute_value_type
+from .complex_types import IcingaObject, IcingaObjects, IcingaConfigObject, IcingaConfigObjects
+from .base import Number, AbstractIcingaObject
 
 
 class Types(CachedResultSet):
@@ -13,18 +13,17 @@ class Types(CachedResultSet):
 
 	# Map some Icinga object types directly to Python types
 	ICINGA_PYTHON_TYPES = {
-		# Base class for everything else...
+		# Base classes for everything else...
 		"Object": IcingaObject,
 		"Objects": IcingaObjects,
-		# Configuration objects are what this IOM part is all about...
+		# Configuration objects are what this IOM part is all about, they have special classes
 		"ConfigObject": IcingaConfigObject,
 		"ConfigObjects": IcingaConfigObjects,
 
-		# Mapping for attribute value types
-		# TODO check if that mapping is really neccessary for all types
-		"Number": create_native_attribute_value_type("Number"),
-		"String": create_native_attribute_value_type("String"),
-		"Boolean": create_native_attribute_value_type("Boolean"),
+		# Mapping of simple types defined in the simple_types module
+		"Number": create_native_attribute_value_type("Number", float),
+		"String": create_native_attribute_value_type("String", str),
+		"Boolean": create_native_attribute_value_type("Boolean", bool),
 		"Timestamp": Timestamp,
 		"Array": Array,
 		"Dictionary": Dictionary,
@@ -33,10 +32,12 @@ class Types(CachedResultSet):
 	}
 
 	def __init__(self, session):
-		"""Load all Icinga object types and setup creating them in classes.
-		It's assumed, that the object type definitions do not change, so the cache time is set to never expire.
-		Even if the data were loaded newly, the changes would only appear in newly created objects/classes."""
-		super().__init__(session.api().types.get, float("inf"))
+		"""Load all Icinga object types and setup creating them as classes.
+
+		It's assumed, that the object type definitions do not change, so the cache time is set to infinity.
+		Even if the data were loaded newly, the changes would only appear in newly created objects/classes.
+		"""
+		super().__init__(request=session.api().types.get, cache_time=float("inf"))
 		self.iclient = session
 
 		# Lock to make type creation thread-safe, althought the whole library is not guaranteed to be
@@ -97,10 +98,10 @@ class Types(CachedResultSet):
 				# The Icinga API doc clearly states, that base is in every type description - but this is not the case!
 				# -> TODO Icinga issue
 
-				# TODO check if this exception is still needed now; try to remove it anyway
-
-				# Parent class
-				parent = IcingaObject if number == Number.SINGULAR else IcingaObjects
+				# Default parent class
+				# AbstractIcingaObject is the same for singular and plural
+				# Not IcingaObject(s) class, because the type could be e.g. "Number" in this case
+				parent = AbstractIcingaObject
 
 			# Classname for created class is the type name
 			classname = type_desc["name"] if number == Number.SINGULAR else type_desc["plural_name"]

@@ -1,32 +1,24 @@
 # -*- coding: utf-8 -*-
-"""This module contains funcionality for all mapped objects.
+"""This module defines complex mapped object types.
 
-The classes for the mapped Icinga objects are created in the types module, but every class created there inherits from
+The classes for the mapped Icinga objects are created in the types module, but most classes created there inherit from
 a class here.
-No thread-safety (yet)."""
+No thread-safety (yet).
+"""
 
 import json
 
 from .exceptions import NoUserView, NoUserModify
-from ..results import ResultSet, CachedResultSet, Result
-from .base import Number
-from .attribute_value_types import JSONResultEncoder, JSONResultDecodeHelper
+from ..results import ResultSet, CachedResultSet, SingleResultMixin
+from .base import Number, AbstractIcingaObject
+from .simple_types import JSONResultEncoder, JSONResultDecodeHelper
 
 # Possible keys of an objects query result
 OBJECT_QUERY_RESULT_KEYS = {"name", "type", "attrs", "joins", "meta"}
 
 
-class IcingaObjects(ResultSet):
+class IcingaObjects(AbstractIcingaObject, ResultSet):
 	"""Base class of every representation of any number of Icinga objects that have the same type."""
-
-	# The DESC is overriden in subclasses with the Icinga type description
-	DESC = {}
-	# The FIELDS is overriden in subclasses with all FIELDS and their description for the object type (incl. from parents)
-	FIELDS = {}
-
-	def __init__(self, value_sequence=None):
-		"""Init Objects with a sequence of the Objects "values"."""
-		super().__init__(value_sequence)
 
 	def result(self, index):
 		"""Return an appropriate IcingaObject or (in case of a slice) IcingaObjects object."""
@@ -34,30 +26,37 @@ class IcingaObjects(ResultSet):
 			return IcingaObjects(self.results[index])
 		return IcingaObject((self.results[index],))
 
+	@classmethod
+	def convert(cls, obj, parent_descr):
+		# The object is handled as a sequence of mappings to convert it
+		try:
+			results = [dict(item) for item in obj]
+			# Create with results and parent_descr
+			return cls(results, parent_descr=parent_descr)
+		except (TypeError, IndexError, KeyError):
+			raise TypeError(f"{obj.__class__.__name__} could not be converted to a {cls.__name__} object")
 
-class IcingaObject(Result, IcingaObjects):
+
+class IcingaObject(SingleResultMixin, IcingaObjects):
 	"""Representation of exactly one Icinga object."""
-	def __init__(self, value_sequence=None, value=None):
-		value_sequence = value_sequence or ((value, ) if value is not None else tuple())
-		IcingaObjects.__init__(value_sequence)
-		super().__init__(value_sequence)
+
+	@classmethod
+	def convert(cls, obj, parent_descr):
+		# Convert obj to a sequence with that one item and let the plural type class handle that
+		super().convert((obj, ), parent_descr)
 
 
 class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 	"""Representation of any number of Icinga objects that have the same type.
 	This is the parent class of all dynamically created Icinga configuration object type classes."""
 
-	def __init__(self, session, request, response=None, results=None, next_cache_expiry=None):
-		super().__init__(request, session.cache_time, response, results, next_cache_expiry)
-		self._session = session
+	def __init__(self, results=None, response=None, request=None, cache_time=float("inf"), next_cache_expiry=None,
+				parent_descr=None, json_kwargs=None):
+		IcingaObjects.__init__(self, parent_descr=parent_descr)
+		super().__init__(results, response, request, cache_time, next_cache_expiry, json_kwargs)
 
 		# JSON Decoding
 		self._json_kwargs["object_pairs_hook"] = JSONResultDecodeHelper(self).object_pairs_hook
-
-	@property
-	def session(self):
-		"""The session such an object was created in."""
-		return self._session
 
 	def result(self, index):
 		"""Return an object representation for the object at this index of results."""
@@ -75,22 +74,17 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		# Get names of the objects in this slice
 		names = [res["name"] for res in results]
 		# Construct a filter for these names
-		# TODO check how that works for objects with composite names (e.g. services)
+		# TODO make this work for objects with composite names (e.g. services)
 		filterstring = "{}.name==\"{}\"".format(self.type, "\" || {}.name==\"".format(self.type).join(names))
 
 		# Copy query for these objects
-		req = self._request.clone()
+		req = self.request.clone()
 		req.json = dict(req.json)
 		# Apply constructed filter and return the result of this query
 		req.json["filter"] = filterstring
-		class_ = self._session.types.type(self.type, number)
+		class_ = self.session.types.type(self.type, number)
 		# TODO check whether that works, I'm not sure
-		return class_(self._session, req, results=results, next_cache_expiry=self._expires)
-
-	@property
-	def type(self):
-		"""The type of this/these object(s). Always returns the singular name."""
-		return self.DESC["name"]
+		return class_(results, request=req, next_cache_expiry=self._expires, parent_descr=self.parent_descr)
 
 	def parse_attrs(self, attrs):
 		"""Parse attrs string.
@@ -121,21 +115,6 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		# else
 		return split
 
-	def permissions(self, attr):
-		"""Get permission for a given attribute (field), returned as a tuple for the boolean values of:
-		no_user_view, no_user_modify
-		All values True is the default."""
-		try:
-			field = self.FIELDS[attr]["attributes"]
-		except KeyError:
-			return True, True
-		return field.get("no_user_view", True), field.get("no_user_modify", True)
-
-	def _attribute_type(self, attr):
-		"""Return type class for an attribute given by name."""
-		typename = self.FIEDLS[attr]["type"]
-		return self._session.types.type(typename)
-
 	def __setattr__(self, key, value):
 		"""Modify object value(s) if the attribute name is a field of this object type. Otherwise default behavior."""
 		if (key and key[0] == '_') or (self.parse_attrs(key)[1] not in self.FIELDS):
@@ -157,21 +136,20 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		change = {}
 		for oldkey, oldval in modification.items():
 			attr = self.parse_attrs(oldkey)
+			key = ".".join(attr)
+
+			# Check if modification is allowed
 			if attr[0] == "joins":
 				raise NoUserModify("Modification of a joined object is not supported.")
 			elif attr[0] != "attrs":
 				raise NoUserModify("Not allowed to modify attribute {}. Not an attribute.".format(key))
 
-			key = ".".join(attr)
-
-			# Check if modification is allowed
 			if self.permissions(attr)[1]:
-				raise NoUserModify("Not allowed to modify attribute {}".format(key))
+				raise NoUserModify("No permission to modify attribute {}".format(key))
 
 			# Convert attribute value type
-			type_ = self._attribute_type(attr[1])
+			type_ = self._field_type(attr[1])
 			# TODO treat ObjectAttribute values
-			# TODO check number=irrelevant is ok here for the type
 			change[key] = type_.convert(self, key, oldval)
 
 		# Create modification query
@@ -199,19 +177,8 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		return ret
 
 
-class IcingaConfigObject(IcingaObject, IcingaConfigObjects):
+class IcingaConfigObject(SingleResultMixin, IcingaConfigObjects):
 	"""Representation of an Icinga object."""
-
-	# The DESC is overriden in subclasses with the Icinga type description
-	DESC = {}
-	# The FIELDS is override in subclasses with all FIELDS and their description for the object type (incl. from parents)
-	FIELDS = {}
-
-	def __init__(self, session, request, response=None, results=None, next_cache_expiry=None):
-		# Call other super init first
-		IcingaConfigObjects.__init__(self, session, request, response, results, next_cache_expiry)
-		# Call super init of Result, overwrites results
-		super().__init__(results)
 
 	@property
 	def name(self):
