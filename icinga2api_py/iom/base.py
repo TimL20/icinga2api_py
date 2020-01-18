@@ -63,7 +63,7 @@ class AbstractIcingaObject:
 
 	def _field_type(self, attr):
 		"""Return type class for a field given by name."""
-		typename = self.FIEDLS[attr]["type"]
+		typename = self.FIELDS[attr]["type"]
 		# Field types are always singular
 		return self.session.types.type(typename, number=Number.SINGULAR)
 

@@ -10,7 +10,7 @@ import json
 
 from .exceptions import NoUserView, NoUserModify
 from ..results import ResultSet, CachedResultSet, SingleResultMixin
-from .base import Number, AbstractIcingaObject
+from .base import Number, AbstractIcingaObject, ParentObjectDescription
 from .simple_types import JSONResultEncoder, JSONResultDecodeHelper
 
 # Possible keys of an objects query result
@@ -37,7 +37,42 @@ class IcingaObjects(AbstractIcingaObject, ResultSet):
 			raise TypeError(f"{obj.__class__.__name__} could not be converted to a {cls.__name__} object")
 
 
-class IcingaObject(SingleResultMixin, IcingaObjects):
+class SingleObjectMixin(SingleResultMixin):
+	"""Extending SingleResultMixin with better field access."""
+
+	def __getitem__(self, item):
+		"""Implements sequence and mapping access in one."""
+		if isinstance(item, (int, slice)):
+			return super().__getitem__(item)
+
+		# Mapping access
+		attr = self.parse_attrs(item)
+		if attr[0] == "attrs":
+			# Check no_user_view
+			if self.permissions(attr[1])[0]:
+				raise NoUserView("Not allowed to view attribute {}".format(attr))
+
+		obj = super().__getitem__(attr)
+		try:
+			# Return value property if possible, useful for native types
+			return obj.value
+		except AttributeError:
+			return obj
+
+	def __getattr__(self, attr):
+		"""Get value of a field."""
+		attr = self.parse_attrs(attr)
+		if attr[0] == "attrs" and attr[1] not in self.FIELDS:
+			raise AttributeError
+
+		# Mapping access - let __getitem__ do the real work
+		try:
+			return self[attr]
+		except KeyError:
+			raise AttributeError
+
+
+class IcingaObject(SingleObjectMixin, IcingaObjects):
 	"""Representation of exactly one Icinga object."""
 
 	@classmethod
@@ -84,7 +119,10 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		names = [res["name"] for res in results]
 		# Construct a filter for these names
 		# TODO make this work for objects with composite names (e.g. services)
-		filterstring = "{}.name==\"{}\"".format(self.type, "\" || {}.name==\"".format(self.type).join(names))
+		filterstring = "{}.name==\"{}\"".format(
+			self.type.lower(),
+			"\" || {}.name==\"".format(self.type.lower()).join(names)
+		)
 
 		# Copy query for these objects
 		req = self.request.clone()
@@ -130,19 +168,22 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 
 	def __setattr__(self, key, value):
 		"""Modify object value(s) if the attribute name is a field of this object type. Otherwise default behavior."""
+		# Short circuiting is essential here, because parse_attrs may fail when the object is not fully initialized yet
 		if (key and key[0] == '_') or (self.parse_attrs(key)[1] not in self.FIELDS):
 			# Fallback to default for non-fields
 			return super().__setattr__(key, value)
 
 		# Modify this object
-		# TODO use attr somehow and avoid parse_attrs for a second time this way
+		# With Python 3.8 a walrus operator could be used to avoid parse_attrs a second time...
+		# Can't be used above, because short-circuiting is essential there
 		self.modify({key: value})
 
 	def modify(self, modification):
-		"""Modify this/these objects. Attributes and their new values as a dict.
+		"""Modify this/these objects.
+
+		Takes attributes and their new values as a dict.
 		This method checks if modification is allowed, converts the values and sends the modification to Icinga.
 		If Icinga returns a HTTP status_code<400 attribute values are also written to the objects results cache.
-		# TODO later: setting attributes should be separate from Icinga modification request
 		"""
 
 		# What is later send as an Icinga request
@@ -157,26 +198,14 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 			elif attr[0] != "attrs":
 				raise NoUserModify("Not allowed to modify attribute {}. Not an attribute.".format(key))
 
-			if self.permissions(attr)[1]:
+			if self.permissions(attr[1])[1]:
 				raise NoUserModify("No permission to modify attribute {}".format(key))
 
 			# Convert attribute value type
 			type_ = self._field_type(attr[1])
-			# TODO treat ObjectAttribute values
-			change[key] = type_.convert(self, key, oldval)
+			change[key] = type_.convert(oldval, parent_descr=ParentObjectDescription(parent=self, field=key))
 
-		# Create modification query
-		mquery = self._request.clone()
-		mquery.method_override = "POST"
-		# Copy original JSON body and overwrite attributes for modification
-		data = dict(mquery.json)["attrs"] = {}
-		data["attrs"] = change
-		# JSON Encoding
-		mquery.data = json.dumps(data, cls=JSONResultEncoder)
-		# Not neccessary, but avoids confusion
-		del mquery.json
-		# Fire modification query (returns APIResponse object)
-		ret = mquery()
+		ret = self._modify0(change)
 
 		if ret.status_code >= 400:
 			# Something went wrong -> do not modify
@@ -185,38 +214,26 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		# Modify cached attribute values
 		for res in self.results:
 			for key, value in change.items():
-				res[self.parse_attrs(key)] = value
+				key = self.parse_attrs(key)[1]
+				res[key] = value
 
 		return ret
 
+	def _modify0(self, modification):
+		"""Actually apply a modification with correctly converted values."""
+		# Create modification query
+		mquery = self._request.clone()
+		mquery.method_override = "POST"
+		# Copy original JSON body and overwrite attributes for modification
+		data = dict(mquery.json)["attrs"] = {}
+		data["attrs"] = modification
+		# JSON Encoding
+		mquery.data = json.dumps(data, cls=JSONResultEncoder)
+		# Should not be neccessary because requests uses data first, but avoids confusion
+		mquery.json = dict()
+		# Fire modification query (returns APIResponse object)
+		return mquery()
 
-class IcingaConfigObject(SingleResultMixin, IcingaConfigObjects):
+
+class IcingaConfigObject(SingleObjectMixin, IcingaConfigObjects):
 	"""Representation of an Icinga object."""
-
-	def __getitem__(self, item):
-		"""Implements sequence and mapping access in one."""
-		if isinstance(item, (int, slice)):
-			return super().__getitem__(item)
-
-		# Mapping access
-		attr = self.parse_attrs(item)
-		if attr[0] == "attrs":
-			# Check no_user_view
-			if self.permissions(attr[1])[0]:
-				raise NoUserView("Not allowed to view attribute {}".format(attr))
-		# Dictionaries and such stuff are handled because the use of the customized JSONDecoder
-		obj = super().__getitem__(attr)
-		try:
-			# Return value property if possible, useful for native types
-			return obj.value
-		except AttributeError:
-			return obj
-
-	def __getattr__(self, attr):
-		"""Get value of a field."""
-		attr = self.parse_attrs(attr)
-		if attr[0] == "attrs" and attr[1] not in self.FIELDS:
-			raise AttributeError
-
-		# Mapping access - let __getitem__ do the real work
-		return self[attr]

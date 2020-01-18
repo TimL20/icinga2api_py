@@ -84,7 +84,7 @@ class APIRequest(Request):
 		if params:
 			# Update URL parameters (optional)
 			self.params.update(params)
-		LOGGER.debug("API %s request to %s with %s", self.method_override, self.url, self.json)
+		LOGGER.debug("API %s request to %s with %s", self.method_override, self.url, self.json or self.data)
 		# Get a prepared request
 		request = self.prepare()
 		# Take environment variables into account

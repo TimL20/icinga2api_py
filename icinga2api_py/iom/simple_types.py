@@ -80,7 +80,7 @@ class Timestamp(AbstractIcingaObject, metaclass=TimestampMeta):
 
 	@property
 	def datetime(self):
-		"""Return a appropriate datetime.datetime object."""
+		"""Return an appropriate datetime.datetime object."""
 		return self._dt
 
 	def get_property(self, property):
@@ -146,9 +146,11 @@ class JSONResultEncoder(JSONEncoder):
 	"""Encode Python representation of result(s) to JSON."""
 
 	def default(self, o):
-		if isinstance(o, NativeValue):
-			# Just serialize the value
-			return super().default(o.value)
+		try:
+			# Just serialize the value, works with NativeValue
+			return o.value
+		except AttributeError:
+			pass
 		super().default(o)
 
 
