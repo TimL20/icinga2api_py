@@ -71,8 +71,12 @@ class Timestamp(AbstractIcingaObject, metaclass=TimestampMeta):
 	DATETIME_PROPERTIES = ("hour", "minute", "second")
 
 	def __init__(self, value, parent_descr):
-		super().__init__(value, parent_descr)
+		super().__init__(parent_descr)
 		self._dt = datetime.datetime.utcfromtimestamp(value)
+
+	@classmethod
+	def convert(cls, obj, parent_descr):
+		return cls(obj, parent_descr)
 
 	@property
 	def datetime(self):
@@ -172,7 +176,7 @@ class JSONResultDecodeHelper:
 		# Iterate over objects
 		for obj in objects:
 			# New object
-			res = {}
+			res = {"attrs": {}}
 			for key, value in obj.get("attrs", dict()).items():
 				try:
 					type_ = self._parent_object.FIELDS[key]["type"]
@@ -182,11 +186,12 @@ class JSONResultDecodeHelper:
 				if type_:
 					# Type needs to be an AbtractIcingaObject for this to work
 					parent_descr = ParentObjectDescription(parent=self._parent_object, field=key)
-					res[key] = type_.convert(value, parent_descr)
+					res["attrs"][key] = type_.convert(value, parent_descr)
 				else:
 					# No type conversion at all, because explicitely suppressed or type is not supported
-					res[key] = value
+					res["attrs"][key] = value
 
-			ret.append(res)
+			obj.update(res)
+			ret.append(obj)
 
 		return ret

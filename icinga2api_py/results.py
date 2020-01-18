@@ -227,11 +227,6 @@ class ResultsFromResponse(ResultSet):
 		except AttributeError:
 			super().load()
 
-	@property
-	def loaded(self):
-		"""True if the results were successfully loaded."""
-		return self._response is not None and super().loaded
-
 	def __str__(self):
 		"""Return short string representation."""
 		if self.loaded:

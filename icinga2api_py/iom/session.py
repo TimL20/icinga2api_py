@@ -9,7 +9,7 @@ from ..api import API
 from ..clients import Client
 from ..models import Query
 from ..results import CachedResultSet
-from .base import Number
+from .base import Number, ParentObjectDescription
 from . import Types
 
 LOGGER = logging.getLogger(__name__)
@@ -69,5 +69,6 @@ class IOMQuery(Query):
 		else:
 			class_ = self.api.types.type(otype, Number.PLURAL)
 		LOGGER.debug("Using class %s for URL %s", class_.__name__, url_split)
-		return class_(self.api, request=request)
-
+		# Now create the object, parent_descr has the session this object belongs to
+		parent_descr = ParentObjectDescription(session=self.api)
+		return class_(request=request, parent_descr=parent_descr)

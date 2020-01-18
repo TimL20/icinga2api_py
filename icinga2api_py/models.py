@@ -73,7 +73,7 @@ class APIRequest(Request):
 		"""Construct a requests.PreparedRequest with the API (client) session."""
 		return self.api.prepare_request(self)
 
-	def send(self, params):
+	def send(self, params=None):
 		"""Send this request.
 
 		The request gets prepared before sending. Given keyword arguments are merged into the URL parameters.
@@ -81,8 +81,9 @@ class APIRequest(Request):
 		:param params: Parameters to merge into the URL parameters.
 		:return: A response created by create_response() of the API object.
 		"""
-		# Update URL parameters (optional)
-		self.params.update(params)
+		if params:
+			# Update URL parameters (optional)
+			self.params.update(params)
 		LOGGER.debug("API %s request to %s with %s", self.method_override, self.url, self.json)
 		# Get a prepared request
 		request = self.prepare()

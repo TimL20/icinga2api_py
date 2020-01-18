@@ -23,8 +23,8 @@ class IcingaObjects(AbstractIcingaObject, ResultSet):
 	def result(self, index):
 		"""Return an appropriate IcingaObject or (in case of a slice) IcingaObjects object."""
 		if isinstance(index, slice):
-			return IcingaObjects(self.results[index])
-		return IcingaObject((self.results[index],))
+			return IcingaObjects(self.results[index], parent_descr=self.parent_descr)
+		return IcingaObject((self.results[index],), parent_descr=self.parent_descr)
 
 	@classmethod
 	def convert(cls, obj, parent_descr):
@@ -43,7 +43,7 @@ class IcingaObject(SingleResultMixin, IcingaObjects):
 	@classmethod
 	def convert(cls, obj, parent_descr):
 		# Convert obj to a sequence with that one item and let the plural type class handle that
-		super().convert((obj, ), parent_descr)
+		return super().convert((obj, ), parent_descr)
 
 
 class IcingaConfigObjects(CachedResultSet, IcingaObjects):
@@ -52,13 +52,19 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 
 	def __init__(self, results=None, response=None, request=None, cache_time=float("inf"), next_cache_expiry=None,
 				parent_descr=None, json_kwargs=None):
-		IcingaObjects.__init__(self, parent_descr=parent_descr)
 		super().__init__(results, response, request, cache_time, next_cache_expiry, json_kwargs)
+		IcingaObjects.__init__(self, results, parent_descr=parent_descr)
 
 		# JSON Decoding
 		self._json_kwargs["object_pairs_hook"] = JSONResultDecodeHelper(self).object_pairs_hook
 
 	def result(self, index):
+		"""Return an object representation for the object at this index of results."""
+		# Hold cache while doing this
+		with self:
+			return self._result0(index)
+
+	def _result0(self, index):
 		"""Return an object representation for the object at this index of results."""
 		if isinstance(index, slice):
 			# Return plural type for slice
@@ -70,7 +76,10 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 			number = Number.SINGULAR
 
 		# Get results of the objects in this slice
-		results = [super().result(i) for i in range(len(self))[index]]
+		# super() does not work in list comprehensions
+		super_ = super()
+		results = [super_.result(i) for i in range(len(self))[index]]
+
 		# Get names of the objects in this slice
 		names = [res["name"] for res in results]
 		# Construct a filter for these names
@@ -83,8 +92,12 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		# Apply constructed filter and return the result of this query
 		req.json["filter"] = filterstring
 		class_ = self.session.types.type(self.type, number)
-		# TODO check whether that works, I'm not sure
-		return class_(results, request=req, next_cache_expiry=self._expires, parent_descr=self.parent_descr)
+		return class_(
+			self.results[index],
+			request=req,  # Request to load this single object
+			cache_time=self.cache_time, next_cache_expiry=self._expires,  # "Inherit" cache time and next expiry
+			parent_descr=self.parent_descr
+		)
 
 	def parse_attrs(self, attrs):
 		"""Parse attrs string.
@@ -98,7 +111,7 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		Also on a <Type> that is in the list of joins (looked up in the request):
 		"<typename>.last_check_result.output" -> ["joins", <typename>, "last_check_result", "output"]
 		"""
-		split = attrs.split('.')
+		split = super().parse_attrs(attrs)
 
 		# First key (name, type, attrs, joins, meta) - defaults to attrs
 		if split[0] not in OBJECT_QUERY_RESULT_KEYS:
@@ -180,15 +193,10 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 class IcingaConfigObject(SingleResultMixin, IcingaConfigObjects):
 	"""Representation of an Icinga object."""
 
-	@property
-	def name(self):
-		"""The name of this object."""
-		return self["name"]
-
 	def __getitem__(self, item):
 		"""Implements sequence and mapping access in one."""
 		if isinstance(item, (int, slice)):
-			super().__getitem__(item)
+			return super().__getitem__(item)
 
 		# Mapping access
 		attr = self.parse_attrs(item)
@@ -197,7 +205,12 @@ class IcingaConfigObject(SingleResultMixin, IcingaConfigObjects):
 			if self.permissions(attr[1])[0]:
 				raise NoUserView("Not allowed to view attribute {}".format(attr))
 		# Dictionaries and such stuff are handled because the use of the customized JSONDecoder
-		return super().__getitem__(attr)
+		obj = super().__getitem__(attr)
+		try:
+			# Return value property if possible, useful for native types
+			return obj.value
+		except AttributeError:
+			return obj
 
 	def __getattr__(self, attr):
 		"""Get value of a field."""

@@ -90,8 +90,13 @@ class AbstractIcingaObject:
 		parent_descr.
 		"""
 		args = list(args)
-		self.parent_descr = kwargs.pop("parent_descr", None) or args.pop()
+		self._parent_descr = kwargs.pop("parent_descr", None) or args.pop()
 		super().__init__(*args, **kwargs)
+
+	@property
+	def parent_descr(self):
+		"""Parent object description."""
+		return self._parent_descr
 
 	@property
 	def session(self):
