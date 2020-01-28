@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """
 This module provides a mocked "Icinga" to communicate with.
+
+It's quite dirty, but should do its work for the tests...
 """
 
 from collections import OrderedDict
 from io import BytesIO
+import json
 
 from requests import Session
 from requests.adapters import BaseAdapter
@@ -14,7 +17,28 @@ from requests.utils import get_encoding_from_headers
 from requests.exceptions import ConnectionError
 from urllib.parse import urlparse
 
-from .icinga_mock_data import DEFAULTS, get_error
+from .icinga_mock_data import DEFAULTS, get_error, OBJECTS
+
+
+def get_method(request: PreparedRequest):
+	"""Get method or X-HTTP-Method-Override."""
+	return request.headers.get("X-HTTP-Method-Override", None) or request.method
+
+
+def list_elongation(lst, length, value=None):
+	"""Append value to lst as long as length is not reached, return lst."""
+	for i in range(len(lst), length):
+		lst.append(value)
+	return lst
+
+
+def get_path_splited(url, min_items=0, max_items=99):
+	"""Get a list of the URL path split at '/', with checks for minimum and maximum path items (and None as default)."""
+	splited = urlparse(url).path.split('/', max_items-1)
+	if len(splited) < min_items:
+		raise ValueError("Too few URL path items")
+
+	return list_elongation(splited, max_items)
 
 
 class Icinga:
@@ -32,7 +56,7 @@ class Icinga:
 		response = self._handle(request)
 		# Do things that appear for every response and defaults, if not explicitely overwritten
 		# Default body
-		response["body"] = ""
+		response.setdefault("body", "")
 		# Default status code
 		response.setdefault("status_code", 200)
 		# Headers
@@ -56,11 +80,14 @@ class Icinga:
 		if response:
 			return response
 
-		path, subpath = urlparse(request.url).path.split('/', 1)
+		_, version, path, subpath = get_path_splited(request.url, 3, 4)
+		if version != "v1":
+			raise ValueError("Invalid API version")
+
 		handler = getattr(self, path, None)
 		if handler:
 			# Let exceptions appear instead of returning a 500 status code
-			return handler(path, subpath)
+			return handler(subpath, request)
 		return get_error(404)
 
 	def check_headers(self, request: PreparedRequest):
@@ -76,12 +103,30 @@ class Icinga:
 			return get_error(401)
 		return None
 
+	def objects(self, subpath, request: PreparedRequest):
+		"""Handle /objects/<type>[/<name>] requests."""
+		ret = self._objects0(subpath, request)
+		return {"status_code": 200, "body": json.dumps(ret)}
+
+	def _objects0(self, subpath, request: PreparedRequest):
+		"""Handle /objects/<type>[/<name>] requests, returns the object itself."""
+		method = get_method(request)
+		otype, name = list_elongation(subpath.split('/'), 2)
+
+		if method == "GET":
+			if name:
+				return OBJECTS[otype].get(name)
+			# TODO Need to parse filters here ............................
+			return OBJECTS[otype]
+
+		raise NotImplementedError("Only HTTP GET is implemented yet...")
+
 
 class StreamableBytesIO(BytesIO):
 	"""File-like object that simulates to be an urllib3 response for requests to be streamable."""
 
 	def stream(self, chunk_size, decode_content):
-		"""Stream content like requests expect it from urllib3 responses."""
+		"""Stream content like requests expects it from an urllib3 response."""
 		while self.tell() < len(self.getvalue()):
 			data = self.read(chunk_size)
 			if data:
@@ -91,10 +136,12 @@ class StreamableBytesIO(BytesIO):
 class IcingaMockAdapter(BaseAdapter):
 	"""An adapter to communicate with the mocked Icinga instance."""
 
-	def __init__(self, hosts=("icinga", ), ports=(1234, ), **kwargs):
+	def __init__(self, hosts=("icinga", ), ports=(1234, ), settings_hook=None, **kwargs):
 		super().__init__()
 		self.hosts = hosts
 		self.ports = ports
+		# Settings hook that gets called with the settings used for a request
+		self.settings_hook = settings_hook or (lambda **_: None)
 		self.icinga = Icinga(**kwargs)
 
 	def check_path(self, url):
@@ -124,6 +171,10 @@ class IcingaMockAdapter(BaseAdapter):
 		response.raw = StreamableBytesIO(resp.get("body", "").encode("utf-8"))
 		# Cookie jar is not mocked, as Icinga doesn't use cookies
 		# response.connection is not mocked, because it's not a response attribute by default
+
+		# Call settings hook with the settings used for this request (to make testing with these easier)
+		self.settings_hook(stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies)
+
 		return response
 
 	def close(self):
@@ -137,5 +188,4 @@ def mock_adapter(session: Session, *args, **kwargs):
 	session.close()
 	session.adapters = OrderedDict()
 	adapter = IcingaMockAdapter(*args, **kwargs)
-	session.mount("http://", adapter)
-	session.mount("https://", adapter)
+	session.mount("mock://", adapter)

@@ -19,12 +19,13 @@ ERRORS = {
 	401: {
 		"reason": "Unauthorized",
 		"headers": {"WWW-Authenticate": "Basic realm=\"Icinga 2\""},
+		"body": "<h1>Unauthorized. Please check your user credentials.</h1>"
 	},
 	404: {
 		"reason": "No such path for mocked Icinga instance",
 		"body": json.dumps({
-			"error":404,
-			"status":"The requested path 'v1/bla/bla' could not be found for mocked Icinga."
+			"error": 404,
+			"status": "The requested path 'v1/bla/bla' could not be found for mocked Icinga."
 		}),
 	},
 }
@@ -34,3 +35,15 @@ def get_error(status_code):
 	err = ERRORS.get(status_code, dict())
 	err["status_code"] = status_code
 	return err
+
+
+OBJECTS = {
+	"hosts": {
+		"localhost": {
+			"attrs": {
+				"name": "localhost",
+				"state": 0
+			}
+		}
+	}
+}
