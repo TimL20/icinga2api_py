@@ -6,7 +6,7 @@ Test for layer 1 (request centered layer) of the icinga2api_py library.
 from collections.abc import Sequence, Mapping
 import pytest
 
-from .icinga_mock import mock_adapter
+from .icinga_mock import mock_session
 from .conftest import REAL_ICINGA
 
 from icinga2api_py.api import API
@@ -58,12 +58,7 @@ def test_api_client_init2():
 @pytest.fixture(scope="module")
 def mocked_api_client() -> API:
 	"""Create a base API client with a mocked Icinga instance (only)."""
-	client = API(URL, **API_CLIENT_KWARGS)
-	# Adds a custom adapter for "mock://"
-	mock_adapter(client)
-	# With makes sure the session is closed
-	with client:
-		yield client
+	yield from mock_session(API(URL, **API_CLIENT_KWARGS))
 
 
 @pytest.fixture(scope="module", params=["mocked", pytest.param("real", marks=pytest.mark.real)])
@@ -227,6 +222,9 @@ def test_request(mocked_api_client):
 	assert request == request2
 
 
+# TODO test that URL query parameters are taken with APIRequest
+
+
 def test_request_clone(mocked_api_client):
 	"""Test models.APIRequest.clone() method."""
 	method = "GET"
@@ -257,7 +255,7 @@ def test_request_envmerge(mocked_api_client, monkeypatch):
 	# Make sure a "mock" proxy is not set
 	mocked_api_client.proxies.pop("mock", None)
 	# Set the settings hook
-	mock_adapter(mocked_api_client, settings_hook=settings_hook)
+	mock_session(mocked_api_client, settings_hook=settings_hook)
 
 	# Monkey patching environment variables for testing
 	monkeypatch.setenv("MOCK_PROXY", proxy)

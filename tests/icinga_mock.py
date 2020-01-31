@@ -41,6 +41,17 @@ def get_path_splited(url, min_items=0, max_items=99):
 	return list_elongation(splited, max_items)
 
 
+def get_parameters(url, body):
+	"""Get parameters, either from URL query parameters or JSON-encoded body."""
+	# Convert URL query parameters to a dict; using parameter keys multiple times is not specified in the Icinga API doc
+	ret = dict([parameter.split("=", 1) for parameter in urlparse(url).query])
+	# Convert body to a dict
+	if isinstance(body, bytes):
+		body = body.decode("utf-8")
+	ret.update(json.loads(body))
+	return ret
+
+
 class Icinga:
 	"""A fake Icinga "instance" for testing without a real Icinga."""
 
@@ -121,6 +132,21 @@ class Icinga:
 
 		raise NotImplementedError("Only HTTP GET is implemented yet...")
 
+	def events(self, subpath, request: PreparedRequest):
+		"""Simulate event streams (without streaming)."""
+		# POST request to /v1/events and nothing else
+		if (subpath and subpath[0] != "?") or get_method(request) != "POST":
+			return get_error(400)
+
+		parameters = get_parameters(request.url, request.body)
+		# Check that this is set
+		_ = parameters["queue"]
+		# Set type, as the real Icinga does
+		parameters["type"] = parameters["types"][0]
+		# Return lines with the parameters dict multiple times...
+		parameters = json.dumps(parameters)
+		return {"status_code": 200, "body": "\n".join((parameters for _ in range(9)))}
+
 
 class StreamableBytesIO(BytesIO):
 	"""File-like object that simulates to be an urllib3 response for requests to be streamable."""
@@ -182,10 +208,15 @@ class IcingaMockAdapter(BaseAdapter):
 		pass
 
 
-def mock_adapter(session: Session, *args, **kwargs):
+def mock_session(session: Session, *args, **kwargs):
 	"""Add IcingaMockAdapter to the given session, remove all other adapters."""
 	# Close adapters for save removal
 	session.close()
+	# Remove all adapters
 	session.adapters = OrderedDict()
+	# Add mock adapter
 	adapter = IcingaMockAdapter(*args, **kwargs)
 	session.mount("mock://", adapter)
+	# With to make sure the session is closed after the tests
+	with session:
+		yield session
