@@ -7,7 +7,7 @@ from collections.abc import Sequence, Mapping
 import pytest
 
 from .icinga_mock import mock_adapter
-from .conftest import REAL_ICINGA, skip_real
+from .conftest import REAL_ICINGA
 
 from icinga2api_py.api import API
 from icinga2api_py.models import APIRequest
@@ -66,7 +66,7 @@ def mocked_api_client() -> API:
 		yield client
 
 
-@pytest.fixture(scope="module", params=["mocked", pytest.param("real", marks=skip_real)])
+@pytest.fixture(scope="module", params=["mocked", pytest.param("real", marks=pytest.mark.real)])
 def api_client(request, mocked_api_client) -> API:
 	"""Create the base API client (api.API), with a mocked or/and a real Icinga instance."""
 	if request.param == "mocked":
@@ -85,48 +85,91 @@ def api_client(request, mocked_api_client) -> API:
 # Test the API client
 #######################################################################################################################
 
-def example_request(api_client, url, i):
-	"""Returns a tuple of (expected method, expected URL, expected body, request)."""
-	# TODO avoid building these multiple times...
-	return (
-		"GET", f"{url}objects/hosts", dict(),
-			api_client.objects.hosts.get,
-		"GET", f"{url}objects/hosts", dict(),
-			api_client / "objects" / "hosts" / "get",
-		"GET", f"{url}objects/hosts",dict(),
-			api_client.s("objects").s("hosts").s("get"),
 
-		"POST", f"{url}a/b/c", dict(),
-			api_client.a.b.c.post,
-		"POST", f"{url}a/b", {"key": "value"},
-			api_client.a.b.key("value").post,
-		"POST", f"{url}a/b", {"key": ["value1", "value2"]},
-			api_client.a.b.key("value1", "value2").post,
-		"POST", f"{url}a/b", {"key": ["value1", "value2", "value3"]},
-			api_client.a.b.key("value1", "value2").key("value3").post
-
-		# Adjusting this needs to adjust the parameter range of test_request_building()
-	)[i*4:i*4+4]
+def test_prepare_base_url():
+	"""Test API.prepare_base_url(url)."""
+	# It doesn't matter what comes out, but it all has to be the same...
+	urls = {
+		API.prepare_base_url("icinga"),
+		API.prepare_base_url("icinga:5665"),
+		API.prepare_base_url("https://icinga"),
+		API.prepare_base_url("https://icinga:5665"),
+		API.prepare_base_url("https://icinga/v1"),
+		API.prepare_base_url("https://icinga:5665/v1"),
+		API.prepare_base_url("https://icinga/v1/"),
+		API.prepare_base_url("icinga/v1/"),
+		API.prepare_base_url("icinga/v1"),
+	}
+	# Debug output
+	print(urls)
+	assert len(urls) == 1
 
 
-@pytest.mark.parametrize("i", [i for i in range(7)])
-def test_request_building(api_client, i):
-	"""Test request building."""
-	url = api_client.base_url
-	exp_method, exp_url, exp_body, request = example_request(api_client, url, i)
+class TestAPIRequest:
+	"""Tests for APIRequests."""
 
-	# Things, that should be true for every request
-	assert request.api == api_client
-	assert request.method == "POST"
+	EXAMPLE_REQUESTS_LENGTH = 11
 
-	# Compare expected and actual values
-	assert request.method_override == exp_method
-	assert request.url == exp_url
-	assert request.json == exp_body
+	@staticmethod
+	def generate_example_requests(api_client, url):
+		"""Generate example requests."""
+		return (
+			"GET", f"{url}objects/hosts", dict(),
+				api_client.objects.hosts.get,
+			"GET", f"{url}objects/hosts", dict(),
+				api_client / "objects" / "hosts" / "get",
+			"GET", f"{url}objects/hosts", dict(),
+				api_client.s("objects").s("hosts").s("get"),
+
+			"POST", f"{url}a/b/c", dict(),
+				api_client.a.b.c.post,
+
+			"POST", f"{url}a/b", {"key": "value"},
+				api_client.a.b.key("value").post,
+			"POST", f"{url}a/b", dict(),
+				api_client.a.b.key("value").key().post,
+
+			"POST", f"{url}a/b", {"key": ["value1", "value2"]},
+				api_client.a.b.key("value1", "value2").post,
+			"POST", f"{url}a/b", {"key": ["value1", "value2"]},
+				api_client.a.b.key("value1").key("value2").post,
+
+			"POST", f"{url}a/b", {"key": ["value1", "value2", "value3"]},
+				api_client.a.b.key("value1", "value2").key("value3").post,
+			"POST", f"{url}a/b", {"key": ["value1", "value2", "value3"]},
+				api_client.a.b.key("value1").key("value2", "value3").post,
+
+			"POST", f"{url}a/b", {"key": ["value1", "value2", "value3", "value4"]},
+				api_client.a.b.key("value1", "value2").key("value3", "value4").post,
+
+			# Adjusting this may need to adjust the EXAMPLE_REQUESTS_LENGTH
+			# 	Because the length of this is required before it actually is built
+		)
+
+	def example_request(self, api_client, url, i):
+		"""Returns a tuple of (expected method, expected URL, expected body, request)."""
+		if not hasattr(self, "example_requests"):
+			self.example_requests = self.generate_example_requests(api_client, url)
+		return self.example_requests[i * 4:i * 4 + 4]
+
+	@pytest.mark.parametrize("i", [i for i in range(EXAMPLE_REQUESTS_LENGTH)])
+	def test_request_building(self, api_client, i):
+		"""Test request building."""
+		url = api_client.base_url
+		exp_method, exp_url, exp_body, request = self.example_request(api_client, url, i)
+
+		# Things, that should be true for every request
+		assert request.api == api_client
+		assert request.method == "POST"
+
+		# Compare expected and actual values
+		assert request.method_override == exp_method
+		assert request.url == exp_url
+		assert request.json == exp_body
 
 
 def test_404_paths(api_client):
-	"""Test path that should return a 404."""
+	"""Test paths that should return a 404 error code."""
 	responses = (
 		api_client.test.whatever.get(),
 		api_client.arbitrary.path.post()
@@ -246,7 +289,7 @@ def test_response_eq(api_client):
 	resp1 = ExampleResponses(api_client)
 	resp2 = ExampleResponses(api_client)
 
-	# Basic tests
+	# Test equality
 	assert resp1.e404 == resp2.e404
 	assert resp1.localhost == resp2.localhost
 

@@ -7,8 +7,7 @@ import json
 import pytest
 
 
-# Connection to a real Icinga instance to test with
-# To set with CLI parameter --icinga
+# Connection to a real Icinga instance to test with; this is set with the CLI parameter --icinga
 REAL_ICINGA = {
 	# True to enable tests with a real Icinga instance, is automatically set if the --icinga CLI option is provided
 	"usage": False,
@@ -19,8 +18,6 @@ REAL_ICINGA = {
 		"auth": ("user", "pass"),
 	}
 }
-
-skip_real = pytest.mark.skipif(not REAL_ICINGA["usage"], reason="Skipping tests with a real Icinga instance")
 
 
 def pytest_addoption(parser):
@@ -33,6 +30,9 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
+	# Register "real" mark
+	config.addinivalue_line("markers", "real: for testing with a real icinga instance")
+
 	# Configure real Icinga if set
 	icinga = config.getoption("--icinga").strip()
 	if icinga:
@@ -41,6 +41,11 @@ def pytest_configure(config):
 		# Special case: JSON doesn't know tuples, but requests expects tuples for HTTP basic auth
 		if "auth" in REAL_ICINGA["sessionparams"]:
 			REAL_ICINGA["sessionparams"]["auth"] = tuple(REAL_ICINGA["sessionparams"]["auth"])
-		# Override skip_real mark
-		global skip_real
-		skip_real = pytest.mark.skipif(not REAL_ICINGA["usage"], reason="Skipping tests with a real Icinga instance")
+
+
+def pytest_collection_modifyitems(items):
+	# Add skip mark to tests marked with real
+	skip_real = pytest.mark.skip(reason="Skipping tests with a real Icinga instance")
+	for item in items:
+		if "real" in item.keywords:
+			item.add_marker(skip_real)
