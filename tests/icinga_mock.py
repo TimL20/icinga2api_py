@@ -8,6 +8,7 @@ It's quite dirty, but should do its work for the tests...
 from collections import OrderedDict
 from io import BytesIO
 import json
+from urllib.parse import urlparse, unquote_plus
 
 from requests import Session
 from requests.adapters import BaseAdapter
@@ -15,7 +16,6 @@ from requests.models import PreparedRequest, Response
 from requests.structures import CaseInsensitiveDict
 from requests.utils import get_encoding_from_headers
 from requests.exceptions import ConnectionError
-from urllib.parse import urlparse
 
 from .icinga_mock_data import DEFAULTS, get_error, OBJECTS
 
@@ -41,14 +41,15 @@ def get_path_splited(url, min_items=0, max_items=99):
 	return list_elongation(splited, max_items)
 
 
-def get_parameters(url, body):
+def get_parameters(url, body=None):
 	"""Get parameters, either from URL query parameters or JSON-encoded body."""
 	# Convert URL query parameters to a dict; using parameter keys multiple times is not specified in the Icinga API doc
-	ret = dict([parameter.split("=", 1) for parameter in urlparse(url).query])
+	ret = dict([unquote_plus(param).split("=", 1) for param in urlparse(url).query.split("&") if "=" in param])
 	# Convert body to a dict
-	if isinstance(body, bytes):
-		body = body.decode("utf-8")
-	ret.update(json.loads(body))
+	if body:
+		if isinstance(body, bytes):
+			body = body.decode("utf-8")
+		ret.update(json.loads(body))
 	return ret
 
 
@@ -216,7 +217,8 @@ def mock_session(session: Session, *args, **kwargs):
 	session.adapters = OrderedDict()
 	# Add mock adapter
 	adapter = IcingaMockAdapter(*args, **kwargs)
-	session.mount("mock://", adapter)
+	# HTTP because requests.PreparedRequest.prepare_url() handles only URLs starting with "http"
+	session.mount("http://", adapter)
 	# With to make sure the session is closed after the tests
 	with session:
 		yield session

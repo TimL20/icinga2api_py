@@ -6,14 +6,14 @@ Test for layer 1 (request centered layer) of the icinga2api_py library.
 from collections.abc import Sequence, Mapping
 import pytest
 
-from .icinga_mock import mock_session
+from .icinga_mock import mock_session, get_parameters
 from .conftest import REAL_ICINGA
 
 from icinga2api_py.api import API
 from icinga2api_py.models import APIRequest
 
 
-URL = "mock://icinga:1234/v1/"
+URL = "http://icinga:1234/v1/"
 API_CLIENT_KWARGS = {
 	"verify": False,
 	"auth": ("user", "pass"),
@@ -222,9 +222,6 @@ def test_request(mocked_api_client):
 	assert request == request2
 
 
-# TODO test that URL query parameters are taken with APIRequest
-
-
 def test_request_clone(mocked_api_client):
 	"""Test models.APIRequest.clone() method."""
 	method = "GET"
@@ -238,6 +235,27 @@ def test_request_clone(mocked_api_client):
 	assert request.method_override == method
 	clone.headers.update({"abc": "abc"})
 	assert request.headers == headers
+
+
+@pytest.mark.parametrize("query_params", (
+		{"a": "b"},
+		{"a": "b", "c": "with space", "d": "1.2"},
+))
+def test_request_params(mocked_api_client, query_params, monkeypatch):
+	"""Test that URL query parameters are processed correctly."""
+	def send(request, **settings):
+		"""Fake sending a request, to compare with the expected query parameters."""
+		assert query_params == get_parameters(request.url)
+		# To avoid exceptions: return the result of the original call
+		return mocked_api_client.__class__.send(mocked_api_client, request, **settings)
+	# Monkeypatch send function of the client, that gets the PreparedRequest objects
+	monkeypatch.setattr(mocked_api_client, "send", send)
+
+	# First possibility: in send() of APIRequest
+	mocked_api_client.path.get(**query_params)
+	# Second possibility: set to session
+	monkeypatch.setattr(mocked_api_client, "params", query_params)
+	mocked_api_client.path.get()
 
 
 def test_request_envmerge(mocked_api_client, monkeypatch):

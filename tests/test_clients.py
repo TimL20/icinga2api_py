@@ -14,7 +14,7 @@ from icinga2api_py.clients import Client, StreamClient
 from icinga2api_py.models import APIRequest, APIResponse
 
 
-URL = "mock://icinga:1234/v1/"
+URL = "http://icinga:1234/v1/"
 API_CLIENT_KWARGS = {
 	"verify": False,
 	"auth": ("user", "pass"),
