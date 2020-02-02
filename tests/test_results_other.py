@@ -5,7 +5,6 @@ Test the classes of the results module other than ResultSet (that is tested in t
 
 import pytest
 from requests import Response
-import time
 
 from icinga2api_py.results import *
 
@@ -13,6 +12,7 @@ from icinga2api_py.results import *
 @pytest.fixture
 def api_response():
 	"""Returns a fake APIResponse object."""
+
 	class FakeResponseObject(Response):
 		def results(self, **json_kwargs):
 			return json_kwargs,
@@ -23,6 +23,7 @@ def api_response():
 @pytest.fixture
 def api_request(api_response):
 	"""Returns a fake APIRequest object."""
+
 	class FakeApiRequestObject:
 		def __call__(self, *args, **kwargs):
 			return api_response
@@ -35,16 +36,17 @@ def api_request(api_response):
 @pytest.fixture
 def advanced_api_request(api_response):
 	"""Returns a callable that returns a fake APIRequest object."""
+
 	class FakeApiRequestObject:
 		def __init__(self, stats):
 			self.stats = stats
-		
+
 		def __call__(self, *args, **kwargs):
 			self.stats["calls"] += 1
 			return api_response
-		
+
 		send = __call__
-	
+
 	return FakeApiRequestObject
 
 
@@ -178,6 +180,3 @@ def test_result():
 	_ = res[0]
 	with pytest.raises(IndexError):
 		_ = res[1]
-
-
-

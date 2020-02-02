@@ -136,7 +136,7 @@ class Icinga:
 		ret = self._objects0(subpath, request)
 		if isinstance(ret, int):
 			return get_error(ret)
-		return {"status_code": 200, "body": json.dumps(ret)}
+		return {"status_code": 200, "body": json.dumps({"results": ret})}
 
 	def _objects0(self, subpath, request: PreparedRequest):
 		"""Handle /objects/<type>[/<name>] requests, returns the object itself."""
@@ -153,7 +153,7 @@ class Icinga:
 				return 400  # TODO check that
 			self.object_data[otype][name] = dict()
 			self.object_data[otype][name]["attrs"] = parameters["attrs"]
-			return {"results": [{"code": 200, "status": "Object was created."}]}
+			return [{"code": 200, "status": "Object was created."}]
 
 		# Filter
 		objects = list()

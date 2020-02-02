@@ -4,10 +4,10 @@ Tests for the important ResultSet class in the results module.
 """
 
 from collections.abc import Sequence
+
 import pytest
 
-from icinga2api_py.results import *
-
+from icinga2api_py.results import ResultSet
 
 EXAMPLE_RESULTSETS = (
 	ResultSet((
@@ -115,6 +115,7 @@ def test_where():
 		nonlocal arg
 		arg = lst
 		return 123
+
 	wherefake = rs.where("z", 0, cls=fake)
 	assert wherefake == 123
 	assert arg == []
