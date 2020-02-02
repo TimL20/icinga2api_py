@@ -6,6 +6,8 @@ It's quite dirty, but should do its work for the tests...
 """
 
 from collections import OrderedDict
+from collections.abc import Sequence, Mapping
+from copy import deepcopy
 from io import BytesIO
 import json
 from urllib.parse import urlparse, unquote_plus
@@ -53,6 +55,17 @@ def get_parameters(url, body=None):
 	return ret
 
 
+def parse_attrs(attrs):
+	"""Parse an attrs sequence/dict to have tuples as keys/items."""
+	if isinstance(attrs, Sequence):
+		ret = [item.split(".") for item in attrs]
+	else:
+		ret = dict()
+		for key, value in attrs.items():
+			ret[tuple(key.split("."))] = value
+	return ret
+
+
 class Icinga:
 	"""A fake Icinga "instance" for testing without a real Icinga."""
 
@@ -62,6 +75,9 @@ class Icinga:
 		for attr in self.ATTRS:
 			# Get attribute value from kwargs, default to icinga_mock_data defaults
 			setattr(self, attr, kwargs.get(attr, DEFAULTS.get(attr)))
+
+		# Get a copy of the objects to work with
+		self.object_data = deepcopy(OBJECTS)
 
 	def handle(self, request: PreparedRequest):
 		"""Entrypoint ot handle a request."""
@@ -118,20 +134,52 @@ class Icinga:
 	def objects(self, subpath, request: PreparedRequest):
 		"""Handle /objects/<type>[/<name>] requests."""
 		ret = self._objects0(subpath, request)
+		if isinstance(ret, int):
+			return get_error(ret)
 		return {"status_code": 200, "body": json.dumps(ret)}
 
 	def _objects0(self, subpath, request: PreparedRequest):
 		"""Handle /objects/<type>[/<name>] requests, returns the object itself."""
 		method = get_method(request)
 		otype, name = list_elongation(subpath.split('/'), 2)
+		parameters = get_parameters(request.url, request.body)
+
+		# Parse attrs
+		parameters["attrs"] = parse_attrs(parameters.get("attrs", dict()))
+
+		if method == "PUT":
+			# Create object with parameters["attrs"] dict
+			if not name:
+				return 400  # TODO check that
+			self.object_data[otype][name] = dict()
+			self.object_data[otype][name]["attrs"] = parameters["attrs"]
+			return {"results": [{"code": 200, "status": "Object was created."}]}
+
+		# Filter
+		objects = list()
+		if name:
+			try:
+				objects.append(self.object_data[otype][name])
+			except KeyError:
+				return 404
+		# TODO Parse other filters than name...
 
 		if method == "GET":
-			if name:
-				return OBJECTS[otype].get(name)
-			# TODO Need to parse filters here ............................
-			return OBJECTS[otype]
+			return objects
+		if method == "POST":
+			res = list()
+			# Modify objects according to parameters["attrs"] dict
+			for obj in objects:
+				obj = obj["attrs"]
+				for key, value in parameters["attrs"].items():
+					o = obj
+					for attr in key[:-1]:
+						o = o[attr]
+					o[key[-1]] = value
+					res.append({"code": 200, "name": obj["name"], "status": "Attributes updated", "type": otype})
+			return res
 
-		raise NotImplementedError("Only HTTP GET is implemented yet...")
+		raise NotImplementedError(f"Method {method} is not implemented")
 
 	def events(self, subpath, request: PreparedRequest):
 		"""Simulate event streams (without streaming)."""
