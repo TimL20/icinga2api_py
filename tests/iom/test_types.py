@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Tests for the simple_oo.types module.
+Tests for the iom.types module.
 """
 
 from collections.abc import Mapping
@@ -90,7 +90,7 @@ def test_type_general(types, item, exp_type):
 		# Check whether the return value is exp_type
 		assert cls is exp_type
 
-	assert isinstance(cls(), AbstractIcingaObject)
+	assert issubclass(cls, AbstractIcingaObject)
 
 
 @pytest.mark.parametrize("item, number, expected_type", (
@@ -106,4 +106,3 @@ def test_type_number(types, item, number, expected_type):
 	number = getattr(Number, number.upper())
 	cls = types.type(item, number=number)
 	assert cls is expected_type
-

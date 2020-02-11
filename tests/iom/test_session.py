@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Tests for the simple_oo.client module.
+Tests for the iom.session module.
 """
 
 import pytest

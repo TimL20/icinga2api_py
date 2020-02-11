@@ -44,7 +44,7 @@ def test_ooquery_decisions(icinga_client, req, expected_type):
 	# One post, one get
 	post = res.post()
 	res = res.get()
-	# Post must always be a APIResponse
+	# Post must always be an APIResponse
 	assert isinstance(post, APIResponse)
 	# For get it's given with the parameters
 	assert isinstance(res, expected_type)

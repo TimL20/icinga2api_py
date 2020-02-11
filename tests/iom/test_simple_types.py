@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Tests for the simple_oo.types module.
+Tests for the iom.simple_types module.
 """
 
 from datetime import datetime
@@ -64,15 +64,12 @@ def test_array():
 	assert len(array) == 3
 	assert array[0] == 0
 	# TODO test modification...
-	assert Array.convert((0, 1, 2), None) == array
 
 
 def test_dictionary():
 	"""Test simple_types.Dictionary."""
 	value = {1: 2, 2: 3}
 	dictionary = Dictionary(value, None)
-	assert dictionary.value == value
-	assert dictionary == value
 	assert len(dictionary) == len(value)
 	assert list(iter(dictionary)) == list(iter(value))
 	assert tuple(dictionary.keys()) == tuple(value)
@@ -80,5 +77,3 @@ def test_dictionary():
 	assert tuple(dictionary.items()) == tuple(value)
 
 	# TODO test modification
-
-	assert Dictionary.convert(value, None) == dictionary
