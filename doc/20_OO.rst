@@ -1,0 +1,162 @@
+The object oriented interface
+=============================
+
+The interface for working with a library is usually called “API”, but as
+it’s better to call the Icinga2 API “API”, the interface from whatever
+python application / code to this library is called “interface” here
+(although the Icinga API is of course an interface two…).
+
+The object oriented interface of this library was introduced to have an
+easy way accessing Icinga2 data through Python objects. Therefore the
+following classes have been introduced:
+
+- ``Icinga2`` is the “start” for all object oriented working. It’s a
+  client, inheriting from ``API``.
+- ``Icinga2Objects`` - Representation of one or more Icinga2 configuration
+  object(s) in form of one Python object
+- ``Icinga2Object`` - Representation of *exactly one* Icinga2
+  configuration object as one Python object
+- Various specialized classes for a specific configuration object types
+
+There is some inheritance:
+
+- ``Icinga2Objects`` inherits from ``CachedResultSet``
+- ``Icinga2Object`` inherits from ``Icinga2Objects`` (!)
+- Specialized classes for one object, for example ``Host``, inherit at
+  least from ``Icinga2Object``
+- Specialized classes for multiple objects, for example ``Hosts`` inherit
+  at least from ``Icinga2Objects``
+
+General
+-------
+
+You propably want an Icinga2 object to work with. The constructor takes
+the same parameters as ``Client`` or ``API``, with the additional
+parameter cache_time, specifying how long attribute values should be
+cached (in seconds).
+
+Querying objects
+----------------
+
+Getting a bunch of Icinga2 configuration objects is really easy:
+
+::
+
+   from icinga2api_py import Icinga2
+
+   # Get an Icinga2 object
+   icinga = Icinga2.from_pieces(host, auth=(username, password))
+
+   # Get a bundle of objects
+   services = icinga.objects.services.filter("service.state==1").get()
+
+   # Get one object
+   localhost = icinga.objects.hosts.localhost.get()
+   print(localhost["name"])  # "localhost"
+
+The type of the queried objects and the name of one queried object are
+usually recognized. Thanks to the specialized class ``Host`` we can
+develop our example to query all service states of localhost easily:
+
+::
+
+   # Get services of localhost
+   localservices = localhost.services
+
+   list(localservices.fields("attrs.state"))  # Returns a list of all service states
+   if localservices:
+       # Loading did not fail and minimum one service in localservices
+       localservices[0]["name"]  # Name of one service
+
+   # TODO: maybe more examples...
+
+As shown with the last lines, getting attribute values works the same as
+with ``Client``, look at that part of the documentation to read more
+about getting attribute values.
+
+Modifying and deleting objects // actions
+-----------------------------------------
+
+Every ``Icinga2Objects`` object has a modify and a delete method. Both
+methods will call the objects ``invalidate`` method to reset a possibly
+used cache (default); but they both have a no_invalidate parameter that
+will prevent resetting if set to True. Both methods return a
+``ResultSet`` object.
+
+::
+
+   # Set the test123 custom var for some services
+   localservices.modify({"vars.test123": "TEST VALUE"})
+
+   # Delete localhost object cascading (!)
+   localhost.delete(cascade=True, no_invalidate=True)
+   # With no_invalidate set to True it's maybe possible (depending on cache expiry) to access localhost data further on
+
+Also every ``Icinga2Objects`` object has an
+``action(<action>, **kwargs)`` method to trigger actions like
+acknowledge-problem. Pass parameters as kwargs to this method; see
+Icinga2 documentation for optional and required parameters for wich
+possible actions. A ``ResultSet`` object is returned.
+
+::
+
+   # Assuming continuation of previous example, without deletation of localhost
+
+   # Reschedule check, without forcing (what is default anyway...)
+   res = localhost.action("reschedule-check", force=False)
+
+   if res[0]["code"] >= 400:
+       print("Failed to reschedule next check")
+
+Creating config objects
+-----------------------
+
+::
+
+   from icinga2api_py import Icinga2
+
+   icinga = Icinga2(url, auth=(username, password))
+
+   # icinga.create_object(<object type>, <object name>, <attrs dictionary>, [<templates>,] [ignore_on_error=False])
+   res = icinga.create_object("service", "localhost!load", {"check_command": "load"}, ["generic-service"])
+
+   if not res.ok:
+       # res.status_code >= 400
+       print("Failed to create service load on localhost")
+
+The ``Icinga2.create_object`` method returns an ``APIResponse`` object.
+
+Querying templates, variables and more
+--------------------------------------
+
+For all “not special” cases, for example variables, this library will
+fall back to use ``Icinga2Objects`` and ``Icinga2Object`` directly.
+Templates are special. They inherit from ``Icinga2Objects``, but their
+modify and delete methods are set to None, because modifying or deleting
+a template is not allowed at runtime (by Icinga). For things
+(e.g. config packages), that can’t be handled like configuration objects
+(Icinga2Objects), this library will fall back to
+``ResultFromResponse``\ s.
+
+Here just some random examples:
+
+::
+
+   # Get host templates
+   icinga.templates.hosts.get()
+
+   # Get variables
+   ivars = icinga.variables.get()
+   print("This Icinga instance has {} global variables!".format(len(ivars)))
+
+   # Get Icinga app status - the IcingaApplication is handled as a configuration object (arguable)
+   app = icinga.status.IcingaApplication.get()["status"]["icingaapplication"]["app"]
+   dif = time.time() - app["program_start"]
+   print("Icinga runs for {} seconds now".format(dif))
+
+   # Get types - those are also Icinga2Objects (arguable)
+   icinga.types.get()
+
+   # Get config packages - these are NOT Icinga2Objects
+   packages = icinga.config.packages.get()
+   print("There are {} config packages right now".format(len(packages)))

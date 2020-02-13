@@ -20,6 +20,7 @@ setuptools.setup(
 	tests_require=['requests', 'pytest'],
 	extras_require={
 		"test": ["pytest"],
+		"doc": ["Sphinx"],
 	},
 	classifiers=[
 		"Programming Language :: Python :: 3",
