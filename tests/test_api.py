@@ -301,6 +301,12 @@ def responses(api_client):
 	return ExampleResponses(api_client)
 
 
+def test_response_basics(responses):
+	"""Test some basics for APIResponse."""
+	assert responses.e404.status_code == 404
+	assert "404" in str(responses.e404)
+
+
 def test_response_eq(api_client):
 	"""Test the equality test for APIResponse objects."""
 	resp1 = ExampleResponses(api_client)
@@ -313,6 +319,7 @@ def test_response_eq(api_client):
 	# Test not equal
 	assert resp1.e404 != resp1.localhost
 	assert resp1.localhost != resp1.hosta
+	assert resp1.e404.__eq__(resp1) == NotImplemented  # Nonsense type test
 
 
 def test_response_results(responses):

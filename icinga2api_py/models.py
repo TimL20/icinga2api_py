@@ -14,20 +14,22 @@ LOGGER = logging.getLogger(__name__)
 
 
 class APIRequest(Request):
-	"""Apecialised requests that may be sent to the Icinga2 API.
+	"""Specialised request with all data that may be sent in a ``requests.PreparedRequest`` to the Icinga2 API.
 
-	Mainly, objects of this cladd have the following features:
-	- method_override property for the 'X-HTTP-Method-Override' header field, while the HTTP method is set to POST
+	Mainly, objects of this class have the following features:
+
+	- method_override property for the 'X-HTTP-Method-Override' header field, while the HTTP method is set to POST \
 		unless explicitely changed.
-	- On prepare(), the APIRequest is prepared using an API object (which is a requests.Session)
-	- The APIRequest gets prepared and sent when the object gets called (which will also return an appropriate response
-		of course).
+	- On prepare(), the APIRequest is prepared using an API object (which is a ``requests.Session``)
+	- The APIRequest gets prepared and sent when the object gets called (which will also return an appropriate \
+		response of course).
 	"""
 
+	#: All attributes any object of this class has
 	attrs = ("method", "url", "headers", "files", "data", "params", "auth", "cookies", "hooks", "json")
 
 	def __init__(self, api, *args, **kwargs):
-		"""Initiate an APIRequest with an API object.
+		"""Initiation requires an API client instance, the other init parameters are passed on to ``requests.Request``.
 
 		:param api: API object, used to prepare the request (using the requests Session feature)
 		:param *args: Get passed to the super constructor
@@ -35,15 +37,13 @@ class APIRequest(Request):
 		"""
 		super().__init__(*args, **kwargs)
 
-		# Client is supposed to be a api.API instance, which inherits from requests.Session
+		#: The API client is supposed to be a api.API instance, which inherits from requests.Session
 		self.api = api
 
 		# To keep it simple everything is handled with method-override, and the standard method is post
 		if self.method is not None:
 			self.method_override = self.method
 		self.method = "POST"
-		# Set accept header to JSON, as it's standard.
-		self.headers['Accept'] = "application/json"
 
 	@property
 	def method_override(self):
@@ -55,7 +55,7 @@ class APIRequest(Request):
 		"""The X-HTTP-Method_Override header field value."""
 		self.headers['X-HTTP-Method-Override'] = method.upper()
 
-	def clone(self):
+	def clone(self) -> "APIRequest":
 		"""Clone this APIRequest."""
 		request = self.__class__(self.api)
 		for attr in self.attrs:
@@ -76,9 +76,10 @@ class APIRequest(Request):
 	def send(self, params=None):
 		"""Send this request.
 
-		The request gets prepared before sending. Given keyword arguments are merged into the URL parameters.
+		The request gets prepared before sending.
 		The returned response is created via create_response() of the API object.
-		:param params: Parameters to merge into the URL parameters.
+
+		:param params: Parameters (as a mapping) to merge into the URL parameters.
 		:return: A response created by create_response() of the API object.
 		"""
 		if params:
@@ -87,8 +88,8 @@ class APIRequest(Request):
 		LOGGER.debug("API %s request to %s with %s", self.method_override, self.url, self.json or self.data)
 		# Get a prepared request
 		request = self.prepare()
-		# Take environment variables into account
-		settings = self.api.merge_environment_settings(request.url, None, None, None, None)
+		# Take environment variables into account (especially for proxies...)
+		settings = self.api.merge_environment_settings(request.url, {}, None, None, None)
 		r = self.api.send(request, **settings)
 		return self.api.create_response(r)
 
@@ -127,24 +128,37 @@ class Query(APIRequest):
 		return request.send()
 
 
-class APIResponse(Response):
-	"""Represents a response from the Icinga2 API."""
+class APIResponse:
+	"""Represents a response from the Icinga2 API.
 
-	def __init__(self, response):
-		super().__init__()
-		# TODO find out if there is a better way than just copy every important attribute
-		self.__setstate__(response.__getstate__())
+	This is basically just a wrapper for ``requests.Response``, adding only minor features.
+	"""
+
+	def __init__(self, response: Response):
+		#: The :class:`requests.Response` this APIRequest wraps
+		self.response = response
+
+	def __getattr__(self, item):
+		"""Get an attribute of the response."""
+		return getattr(self.response, item)
 
 	def __eq__(self, other):
+		"""Check whether this response has the same url, status_code, reason, headers and content as other."""
 		try:
-			return self.__getstate__() == other.__getstate__()
+			# Attributes and properties to compare
+			attrs = ("url", "status_code", "reason", "headers", "content")
+			for attr in attrs:
+				if getattr(self, attr) != getattr(other, attr):
+					return False
 		except AttributeError:
 			return NotImplemented
+		else:
+			return True
 
 	def json(self, **kwargs):
 		"""JSON encoded content of the response (if any). Returns None on error."""
 		try:
-			return super().json(**kwargs)
+			return self.response.json(**kwargs)
 		except ValueError:
 			# No valid JSON encoding
 			return None
@@ -163,5 +177,5 @@ class APIResponse(Response):
 
 	def __str__(self):
 		"""Simple string representation."""
-		status = "{} ({})".format(self.status_code, self.reason) if self.reason else self.status_code
-		return "<{} {} from {}>".format(self.__class__.__name__, status, self.url)
+		status = f"{self.status_code} ({self.reason})" if self.reason else self.status_code
+		return f"<{self.__class__.__name__} {status} for {self.url}>"
