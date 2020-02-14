@@ -21,7 +21,7 @@ setup(
 	long_description_content_type="text/markdown",
 	license="BSD 3-Clause License",
 	packages=["icinga2api_py"],
-	python_requires=">=3.5",
+	python_requires=">=3.6",
 	install_requires=['requests'],
 	tests_require=['requests', 'pytest'],
 	extras_require={

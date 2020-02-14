@@ -45,7 +45,8 @@ def pytest_configure(config):
 
 def pytest_collection_modifyitems(items):
 	# Add skip mark to tests marked with real
-	skip_real = pytest.mark.skip(reason="Skipping tests with a real Icinga instance")
-	for item in items:
-		if "real" in item.keywords:
-			item.add_marker(skip_real)
+	if not REAL_ICINGA["usage"]:
+		skip_real = pytest.mark.skip(reason="Skipping tests with a real Icinga instance")
+		for item in items:
+			if "real" in item.keywords:
+				item.add_marker(skip_real)

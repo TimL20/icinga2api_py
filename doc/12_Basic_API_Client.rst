@@ -16,7 +16,7 @@ with this client.
 Construct an API client
 -----------------------
 
-There are two ways to construct the API client.
+Constructing an API client is easily done with a base URL and optionally some parameters.
 
 ::
 
@@ -30,20 +30,19 @@ There are two ways to construct the API client.
 
    # Examples
    apiclient = API("https://icingahost:5665/v1/", auth=("user", "pass"), verify="./icingahost.ca")
-   # Is the same as
-   apiclient = API.from_pieces("icingahost", auth=("user", "pass"), verify="./icingahost.ca")
 
 -  The url is the Icinga2 API URL endpoint base including the API
-   version. Example: https://localhost:5665/v1/
--  With the alternative constructor the URL is built from host and
-   optional port and url_prefix. This is usefull, as port and url_prefix
-   have default values (5665 and “/v1”) here.
+   version. Example: "https://localhost:5665/v1/"
+   The client will try to append default scheme (https), port (5665) and
+   API version (v1) if not specified, so the following URL will do the
+   same as the URL above: "localhost"
 -  The sessionparams (keyword arguments) are key-value-pairs of
    attributes for the Session. Every requests.Session attribute is
    possible. It is important to use it for authentication.
    Authentication is passed here (both basic or certificates are
-   supported). Other attributes are e.g. verify (Certificate
-   verification) or proxy.
+   supported). Other useful attributes are e.g. verify (Certificate
+   verification) proxy (scheme->proxy mapping), trust_env (whether to
+   trust environment variables for e.g. proxy).
 
 Building a Request to a URL
 ---------------------------

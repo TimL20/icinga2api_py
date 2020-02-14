@@ -81,23 +81,24 @@ def api_client(request, mocked_api_client) -> API:
 #######################################################################################################################
 
 
-def test_prepare_base_url():
+# It doesn't matter what comes out, but it all has to be the same...
+EXPECTED_PREPARED_BASE_URL = API.prepare_base_url("https://icinga:5665/")
+
+
+@pytest.mark.parametrize("url", (
+	"icinga",
+	"icinga:5665",
+	"https://icinga",
+	"https://icinga:5665",
+	"https://icinga/v1",
+	"https://icinga:5665/v1",
+	"https://icinga/v1/",
+	"icinga/v1/",
+	"icinga/v1",
+))
+def test_prepare_base_url(url):
 	"""Test API.prepare_base_url(url)."""
-	# It doesn't matter what comes out, but it all has to be the same...
-	urls = {
-		API.prepare_base_url("icinga"),
-		API.prepare_base_url("icinga:5665"),
-		API.prepare_base_url("https://icinga"),
-		API.prepare_base_url("https://icinga:5665"),
-		API.prepare_base_url("https://icinga/v1"),
-		API.prepare_base_url("https://icinga:5665/v1"),
-		API.prepare_base_url("https://icinga/v1/"),
-		API.prepare_base_url("icinga/v1/"),
-		API.prepare_base_url("icinga/v1"),
-	}
-	# Debug output
-	print(urls)
-	assert len(urls) == 1
+	assert API.prepare_base_url(url) == EXPECTED_PREPARED_BASE_URL
 
 
 class TestAPIRequest:
