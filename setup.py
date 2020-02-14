@@ -1,14 +1,20 @@
 # -*- coding: utf-8 -*-
 
 # Thanks to https://packaging.python.org/tutorials/packaging-projects
-import setuptools
+# And https://github.com/pallets/flask/blob/master/setup.py
+from setuptools import setup
+import re
+
+# Read the __version__ string from the __init__ file to avoid changing it here all the time
+with open("icinga2api_py/__init__.py", "rt") as file:
+	version = re.search(r'__version__ = "(.*?)"', file.read()).group(1)
 
 with open("README.md", "r") as fh:
 	long_description = fh.read()
 
-setuptools.setup(
+setup(
 	name="icinga2api_py",
-	version="0.6.26",
+	version=version,
 	author="Tim Lehner",
 	description="Icinga2 API client for Python",
 	long_description=long_description,
