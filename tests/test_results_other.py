@@ -139,6 +139,7 @@ def test_caching(advanced_api_request, monkeypatch):
 def test_resultlist():
 	"""Test ResultList."""
 	lst = ResultList(({"a": 1}))
+	assert lst.results == [{"a": 1}]
 	assert lst
 
 	# Test item get/set/del
@@ -158,7 +159,16 @@ def test_resultlist():
 	assert 0 < len(sliced) <= 2
 
 	# Attribute access
-	assert lst.all("d.a", 1)
+	assert lst.all("a", 1)
+
+
+def test_resultlist_eq():
+	"""Test ResultList.__eq__."""
+	lst1 = ResultList({"a": 1})
+	lst2 = ResultList({"a": 1})
+	lst3 = ResultList(({"a": 1},))
+	assert lst1 == lst2
+	assert lst2 == lst3
 
 
 def test_result():
@@ -180,3 +190,23 @@ def test_result():
 	_ = res[0]
 	with pytest.raises(IndexError):
 		_ = res[1]
+
+
+def test_result_empty():
+	"""Test with an empty Result object."""
+	res = Result()
+	assert len(res.results) == 0
+	lst = list()
+	res1 = Result(lst)
+	assert res == res1
+	assert list(res.keys()) == lst
+	assert list(res.items()) == lst
+	assert list(res.values()) == lst
+
+	assert len(res) == 0
+	assert bool(res) is False
+
+	with pytest.raises(IndexError):
+		_ = res[0]
+	with pytest.raises(KeyError):
+		_ = res["a"]

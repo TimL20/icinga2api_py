@@ -128,6 +128,7 @@ class ResultSet(collections.abc.Sequence):
 		passed there (cls needs to behave like the ResultSet constructor to work of course).
 		A overridden or a future version of this method may support more filter expressions than comparison for
 		equality.
+
 		:param key: The key for the fields of the results that should be tested against the expected.
 		:param expected: The expected value, only results that have this value for mapped to the key are returned.
 		:param cls: The class for the returned object, None (default) for a ResultSet. Could also be any other callable.
@@ -225,6 +226,7 @@ class ResultsFromResponse(ResultSet):
 		try:
 			self._results = self.response.results(**self._json_kwargs)
 		except AttributeError:
+			# Especially in the case, that the response is None
 			super().load()
 
 	def __str__(self):
@@ -250,6 +252,12 @@ class ResultsFromRequest(ResultsFromResponse):
 			getting them from the response. None for no keyword arguments to pass.
 		"""
 		super().__init__(results, response, json_kwargs)
+
+		# If the request is None, act like it always loads the response (that being None is handled in super's load)
+		# If the request is not None, the response is loaded via the APIRequest
+		# and the results are loaded from the response
+		# - which is actually the point of this class, the other stuff is only to be behave like the parent classes
+		self._request_lambda = request if request is not None else lambda: response
 		self._request = request
 
 	@property
@@ -259,10 +267,20 @@ class ResultsFromRequest(ResultsFromResponse):
 
 	@property
 	def response(self):
-		"""Loads response with use of the request. This property is ironically called from the load method."""
+		"""Loads response with use of the request - this property is ironically called from the load method."""
 		if self._response is None:
-			self._response = self._request()
+			try:
+				self._response = self._request()
+			except TypeError:
+				# In case the request is None
+				self._response = self._request_lambda()
+
 		return self._response
+
+	def load(self):
+		"""Reload the results from the response, and the response from the request."""
+		self._response = None
+		super().load()
 
 	def __eq__(self, other):
 		"""True if other has the same request, or the superclass's __eq__ returns True."""
@@ -311,8 +329,7 @@ class CachedResultSet(ResultsFromRequest):
 		return super().response
 
 	def load(self):
-		"""Reset cache expiry time and (re-)load response."""
-		self._response = None
+		"""(Re)load results from request/response and reset cache expiry."""
 		super().load()
 		self._expires = time.time() + self.cache_time
 
@@ -378,8 +395,11 @@ class ResultList(ResultSet, collections.abc.MutableSequence):
 	"""Mutable results representation, with all nice features of ResultSet."""
 
 	def __init__(self, results=None):
+		"""A ResultList can be initiated with a sequence of mapping objects or one mapping object."""
 		super().__init__(None)
-		self._results = [] if results is None else list(results)
+		if not isinstance(results, collections.abc.Sequence):
+			results = list() if not results else [dict(results)]
+		self._results = list(results)
 
 	def result(self, index):
 		"""Return result at the given index, or a ResultSet."""
@@ -404,7 +424,7 @@ class ResultList(ResultSet, collections.abc.MutableSequence):
 			self.results.insert(index, value.result)
 		except AttributeError:
 			# Insert the raw value...
-			self.insert(index, value)
+			self.results.insert(index, value)
 
 
 # Type for self of the SingleResultMixin
@@ -417,33 +437,32 @@ class SingleResultMixin:
 	This class appears as a sequence with length one, but also as an immutable Mapping.
 	"""
 
-	def __init__(self: SingleResultMixinType, results=None, *args, **kwargs):
+	@property
+	def results(self: SingleResultMixinType):
+		"""Sequence of exactly one result."""
+		# Get the results like the class this mixin is used with would
+		results = super().results
+
+		# Return a sequence with exactly one item, no matter which type the results have
+		if results is None:
+			return tuple()
 		if isinstance(results, collections.abc.Sequence):
 			try:
-				results = (results[0], )
+				return results[0],
 			except IndexError:
-				results = tuple()
-		else:
-			results = (results, )
+				return tuple()
 
-		super().__init__(results, *args, **kwargs)
-
-	def result(self: SingleResultMixinType, index):
-		"""Get the result - which is always this object itself."""
-		if isinstance(index, int) and index >= len(self):
-			# It's a sized container...
-			raise IndexError
-		if isinstance(index, slice):
-			# Make sure that only one object is returned by slicing a made-up example tuple
-			example = (True,).__getitem__(index)
-			return [self] if any(example) else list()
-
-		return self
+		# Handle the case special for classes using this mixin, that a single result is loaded/given
+		return results,
 
 	@property
 	def _raw(self: SingleResultMixinType):
 		"""Get the "raw" result as a dictionary. Meant for internal use only."""
-		return self.results[0]
+		try:
+			return self.results[0]
+		except IndexError:
+			# Behave like an empty dict, e.g. when keys() is called
+			return dict()
 
 	def __getitem__(self: SingleResultMixinType, item):
 		"""Implements Mapping and sequence access in one."""
@@ -481,15 +500,6 @@ class SingleResultMixin:
 	def values(self: SingleResultMixinType):
 		"""Get a ValuesView for the result mapping items."""
 		return collections.abc.ValuesView(self._raw)
-
-	def __len__(self: SingleResultMixinType):
-		"""Length of this sequence - this is always 1."""
-		return 1
-
-	def __iter__(self: SingleResultMixinType):
-		"""Iterate of the "sequence" item (this one and only object).
-		This is not useful for this class, but to avoid trouble caused by inheriting of Sequence."""
-		yield self
 
 
 class Result(SingleResultMixin, ResultSet):
