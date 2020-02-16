@@ -301,7 +301,7 @@ class CachedResultSet(ResultsFromRequest):
 	"""
 
 	def __init__(self, results=None, response=None, request=None, cache_time=float("inf"), next_cache_expiry=None,
-				json_kwargs=None):
+				timefunc=time.time, json_kwargs=None):
 		"""ResultSet from Request with caching.
 
 		:param results: Already loaded results, or None (default).
@@ -311,10 +311,13 @@ class CachedResultSet(ResultsFromRequest):
 		:param request: An APIRequest to load the response (and therefore results) from.
 		:param cache_time: How long to cache the results before reloading them.
 		:param next_cache_expiry: Sets the next cache expiry (absolute time in seconds).
+		:param timefunc: A callable to use for getting the current time (to determine when to reload cache), defaults
+			to ``time.time``
 		:param json_kwargs: Optional a dictionary of keyword arguments to pass for json decoding of the results when
 			getting them from the response. None for no keyword arguments to pass.
 		"""
 		super().__init__(results, response, request, json_kwargs)
+		self.timefunc = timefunc
 		self.cache_time = cache_time
 		self._expires = next_cache_expiry or cache_time
 		# Holds the _expires attribute value on hold
@@ -323,7 +326,7 @@ class CachedResultSet(ResultsFromRequest):
 	@property
 	def response(self):
 		"""The original response from the Icinga2 API, reload the response on cache expiry."""
-		if self._expires < time.time():
+		if self._expires < self.timefunc():
 			# Delete cached response
 			self._response = None
 		return super().response
@@ -331,19 +334,19 @@ class CachedResultSet(ResultsFromRequest):
 	def load(self):
 		"""(Re)load results from request/response and reset cache expiry."""
 		super().load()
-		self._expires = time.time() + self.cache_time
+		self._expires = self.timefunc() + self.cache_time
 
 	@property
 	def results(self):
 		"""Extends results access with timed caching."""
-		if self._expires < time.time():
+		if self._expires < self.timefunc():
 			self._results = None
 		return super().results
 
 	@property
 	def loaded(self):
 		"""True if a successful load has taken place and cache is not expired."""
-		return super().loaded and self._expires >= time.time()
+		return super().loaded and self._expires >= self.timefunc()
 
 	def invalidate(self):
 		"""Delete cached response and results."""
