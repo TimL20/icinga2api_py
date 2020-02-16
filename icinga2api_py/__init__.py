@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "0.6.30"
+__version__ = "0.6.31"
 __author__ = "Tim Lehner"
 
 from .api import API

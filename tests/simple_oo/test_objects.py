@@ -22,7 +22,7 @@ def fake_request():
 
 	class FakeApiClient(API):
 		def __init__(self):
-			super().__init__("")
+			super().__init__("notempty")
 			self.base_url = ""  # Overwrite with empty base
 
 		@property
@@ -48,6 +48,14 @@ def test_host_services(objects_init_params):
 	assert res.method_override == "GET"
 	assert res.url == "objects/services"
 	assert res.json == {"filter": 'host.name=="objectname"'}
+
+
+@pytest.mark.parametrize("cls", (
+	Hosts, Host, Services, Service
+))
+def test_action_existance(cls):
+	"""Test for all required classes that they have an action() method, functionality is tested with base_objects."""
+	assert hasattr(cls, "action")
 
 
 @pytest.mark.parametrize("cls,s_class", (

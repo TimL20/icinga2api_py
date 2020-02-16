@@ -3,10 +3,10 @@
 """
 
 import logging
-from ..simple_oo.base_objects import Icinga2Objects, Icinga2Object
+from ..simple_oo.base_objects import Icinga2Objects, Icinga2Object, ActionMixin
 
 
-class Host(Icinga2Object):
+class Host(Icinga2Object, ActionMixin):
 	"""Representation of a Icinga2 Host object."""
 	@property
 	def services(self):
@@ -17,26 +17,26 @@ class Host(Icinga2Object):
 			logging.getLogger(__name__).exception("Exception constructing services from a Host object.")
 
 
-class Hosts(Icinga2Objects):
+class Hosts(Icinga2Objects, ActionMixin):
 	"""Representation of Icinga2 host objects."""
 	def result(self, index):
 		"""Return a Host object at this index."""
 		return self.result_as(index, Host)
 
 
-class Service(Icinga2Object):
+class Service(Icinga2Object, ActionMixin):
 	"""Representation of an Icinga2 Service object."""
 	@property
 	def host(self):
 		"""Get host to wich this service beongs to."""
 		try:
 			hostname = self["attrs"]["host_name"]
-			return self._request.api.objects.hosts.s(hostname).get(caching=self._expiry)
+			return self._request.api.objects.hosts.s(hostname).get()
 		except AttributeError:
 			logging.getLogger(__name__).exception("Exception constructing Host object from Service object.")
 
 
-class Services(Icinga2Objects):
+class Services(Icinga2Objects, ActionMixin):
 	def result(self, index):
 		"""Return a Service object at this index."""
 		return self.result_as(index, Service)

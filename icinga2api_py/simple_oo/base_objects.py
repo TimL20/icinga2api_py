@@ -3,18 +3,21 @@
 """
 
 import logging
+from typing import Iterable
 
 from ..results import CachedResultSet, ResultList, SingleResultMixin
 
 LOGGER = logging.getLogger(__name__)
 
 
-def objects_filter(type_, object_names):
+def objects_filter(type_: str, object_names: Iterable):
 	"""Create a filter for the Icinga API that filters for the objects given by name (as sequence of strings) and
 	type (just one string describing the type of all the objects).
 
 	:returns The filter as a string, or None if filter construction was not possible.
 	"""
+	if not type_:
+		return None
 	type_ = type_.lower()
 	if type_ == "service":
 		# Services are objects that are specified as <host>!<service>
@@ -40,8 +43,12 @@ class Icinga2Objects(CachedResultSet):
 
 	@property
 	def type(self):
-		"""The Icinga object type."""
-		return self[0]["type"]
+		"""The Icinga object type, or None if there are no objects."""
+		try:
+			return self[0]["type"]
+		except IndexError:
+			# Maybe this is a good idea, maybe it's not... TODO think about it again
+			return None
 
 	def objects_filter(self):
 		"""Get a Icinga API filter that filters for the objects of self."""
@@ -55,28 +62,29 @@ class Icinga2Objects(CachedResultSet):
 			# Handles slicing
 			return super().result(index)
 
-		if isinstance(index, slice):
-			# Icinga2ObjectList with object of class_
-			ret = Icinga2ObjectList()
-			for obj in super().result(index):
-				# Build request
-				req = self._request.clone()
-				req.json = {"filter": "{}.name==\"{}\"".format(obj["type"], obj["name"])}
-				ret.append(class_(req, obj["name"], self.cache_time, results=obj, next_cache_expiry=self._expires))
-			return ret
+		# Don't attempt to clone the request if there is no request
+		has_request = self._request is not None
 
-		# Get result object
-		res = super().result(index)
-		# Build request for single object with filter string
-		mquery = self._request.clone()
-		fstring = objects_filter(res["type"], (res["name"],))
-		mquery.json = {"filter": fstring}
-		return class_(
-			results=res,
-			request=mquery,
-			cache_time=self.cache_time,
-			next_cache_expiry=self._expires
-		)
+		# Construct Icinga2ObjectList with object of class_
+		ret = list()
+		for res in super().result(index):
+			# Build request
+			if has_request:
+				req = self._request.clone()
+				req.json = {"filter": objects_filter(res["type"], (res["name"],))}
+			else:
+				req = None
+			ret.append(class_(
+				request=req, results=res,
+				cache_time=self.cache_time, next_cache_expiry=self._expires
+			))
+
+		lst = Icinga2ObjectList(ret)
+
+		if isinstance(index, slice):
+			return lst
+
+		return ret[0]
 
 	def result(self, index):
 		"""Return the Icinga2Object at this index."""
@@ -85,29 +93,6 @@ class Icinga2Objects(CachedResultSet):
 	###################################################################################################################
 	# Actions #########################################################################################################
 	###################################################################################################################
-
-	def action(self, action, **parameters):
-		"""Process an action with specified parameters. This method works only, because each and every object query
-		result has object type (type) and full object name (name) for the object. It is assumed, that the type is the
-		same for all objects (should be...). With this information, a filter is created, that should match all Icinga2
-		objects represented.
-		As there is no action specified in the documentation, that applies to other objects than hosts or services, this
-		method will only handle hosts and services."""
-		if len(self) < 1:
-			return None
-		type_ = self.type
-		names = (obj["name"] for obj in self)
-		LOGGER.debug("Processing action {} for {} objects of type {}".format(action, len(self), type_))
-		fstring = objects_filter(self.type, names)
-
-		if not fstring:
-			return None
-
-		# self._request.api = Icinga2 (client) instance
-		query = self._request.api.actions.s(action).type(type_.title()).filter(fstring)
-		for parameter, value in parameters.items():
-			query = query.s(parameter)(value)
-		return query.post()
 
 	def modify(self, attrs, no_invalidate=False):
 		"""Modify this/these objects; set the given attributes (dictionary).
@@ -136,6 +121,34 @@ class Icinga2Objects(CachedResultSet):
 		return ret  # Return query result
 
 
+class ActionMixin:
+	"""Mixin for Icinga2Objects subclasses supporting actions (hosts, services)."""
+
+	def action(self: Icinga2Objects, action, **parameters):
+		"""Process an action with specified parameters.
+
+		This method works because each and every object query
+		result has object type (type) and full object name (name) for the object. It is assumed, that the type is the
+		same for all objects (should be...). With this information, a filter is created, that should match all Icinga2
+		objects represented.
+		"""
+		if len(self) < 1:
+			return None
+		type_ = self.type
+		names = (obj["name"] for obj in self)
+		LOGGER.debug("Processing action {} for {} objects of type {}".format(action, len(self), type_))
+		fstring = objects_filter(self.type, names)
+
+		if not fstring:
+			return None
+
+		# self._request.api = Icinga2 (client) instance
+		query = self._request.api.actions.s(action).type(type_.title()).filter(fstring)
+		for parameter, value in parameters.items():
+			query = query.s(parameter)(value)
+		return query.post()
+
+
 class Icinga2ObjectList(ResultList):
 	"""List of Icinga2 configuration objects.
 	The difference to Icinga2Objects is, that the objects here are really handled as single objects, whereas in
@@ -145,7 +158,12 @@ class Icinga2ObjectList(ResultList):
 	A Icinga2ObjectList is built e.g. on slicing a Icinga2Objects object, or by creating it and adding objects.
 	"""
 
-	# Here the implementations of action(), modify() and delete() as in Icinga2Objects should go...
+	def __init__(self, results=None, result_class=None):
+		# Let the result class default to Icinga2Object
+		result_class = result_class or Icinga2Object
+		super().__init__(results, result_class)
+
+	# TODO add modify and delete methods
 
 
 class Icinga2Object(SingleResultMixin, Icinga2Objects):

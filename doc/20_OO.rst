@@ -92,11 +92,13 @@ will prevent resetting if set to True. Both methods return a
    localhost.delete(cascade=True, no_invalidate=True)
    # With no_invalidate set to True it's maybe possible (depending on cache expiry) to access localhost data further on
 
-Also every ``Icinga2Objects`` object has an
-``action(<action>, **kwargs)`` method to trigger actions like
-acknowledge-problem. Pass parameters as kwargs to this method; see
-Icinga2 documentation for optional and required parameters for wich
-possible actions. A ``ResultSet`` object is returned.
+
+For Icinga object types supporting actions (hosts, services) their
+corresponding Python classes have an ``action(<action>, **kwargs)``
+method to trigger actions like e.g. "acknowledge-problem". Pass
+parameters as kwargs to this method; see the Icinga2 documentation for
+optional and required parameters for possible actions. A
+``ResultsFromResponse`` object is returned.
 
 ::
 
@@ -124,7 +126,7 @@ Creating config objects
        # res.status_code >= 400
        print("Failed to create service load on localhost")
 
-The ``Icinga2.create_object`` method returns an ``APIResponse`` object.
+The ``Icinga2.create_object`` method returns an ``ResultsFromResponse`` object.
 
 Querying templates, variables and more
 --------------------------------------

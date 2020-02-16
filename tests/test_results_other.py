@@ -162,6 +162,30 @@ def test_resultlist():
 	assert lst.all("a", 1)
 
 
+def test_resultlist_result():
+	"""Test ResultList.result() return types."""
+
+	def callabl(result):
+		return result
+
+	class ResultListChild(ResultList):
+		"""A child class of ResultList to test result(slice)."""
+
+	class ResultChild(Result):
+		"""A child class of Result."""
+
+	results = ({0: 1}, ResultChild(results=({0: 1}, )))
+	lst = ResultListChild(results, result_class=ResultChild)
+	assert isinstance(lst.result(slice(0, -1)), ResultListChild)
+	assert isinstance(lst.result(0), ResultChild)
+	# Assert that the ResultChild (index 1) is not wrapped in another ResultChild
+	assert lst.result(0) == lst.result(1)
+
+	# Test with result_class callable, and also test unwrapping the ResultChild
+	lst = ResultList(results, result_class=callabl)
+	assert lst.result(0) == lst.result(0)
+
+
 def test_resultlist_eq():
 	"""Test ResultList.__eq__."""
 	lst1 = ResultList({"a": 1})

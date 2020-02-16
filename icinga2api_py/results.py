@@ -397,18 +397,38 @@ class CachedResultSet(ResultsFromRequest):
 class ResultList(ResultSet, collections.abc.MutableSequence):
 	"""Mutable results representation, with all nice features of ResultSet."""
 
-	def __init__(self, results=None):
+	def __init__(self, results=None, result_class=None):
 		"""A ResultList can be initiated with a sequence of mapping objects or one mapping object."""
 		super().__init__(None)
 		if not isinstance(results, collections.abc.Sequence):
 			results = list() if not results else [dict(results)]
 		self._results = list(results)
 
+		#: A callable (e.g. class) used to create a single result
+		self.result_class = result_class or Result
+
 	def result(self, index):
 		"""Return result at the given index, or a ResultSet."""
 		if isinstance(index, slice):
-			return ResultList(self.results[index])
-		return Result(self.results[index])
+			return self.__class__(self.results[index])
+
+		# Return this result, wrapped via result_class if needed
+		result = self.results[index]
+		try:
+			if isinstance(result, self.result_class):
+				# Directly return the result
+				return result
+		except TypeError:
+			# Catched to allow result_class to be any callable
+			pass
+
+		try:
+			# In case the appended result something like a Result object (although not a subclass of result_class)
+			result = result.results
+		except AttributeError:
+			pass
+
+		return self.result_class(result)
 
 	def __delitem__(self, index):
 		del self.results[index]

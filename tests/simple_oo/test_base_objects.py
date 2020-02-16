@@ -8,7 +8,7 @@ from requests import Response
 
 from icinga2api_py import API
 from icinga2api_py.models import APIRequest
-from icinga2api_py.simple_oo.base_objects import Icinga2Object, Icinga2Objects
+from icinga2api_py.simple_oo.base_objects import Icinga2Object, Icinga2Objects, ActionMixin
 
 
 # These three belong together
@@ -80,7 +80,7 @@ def deep_fake_request():
 
 	class FakeApiClient(API):
 		def __init__(self):
-			super().__init__("")
+			super().__init__("notempty")
 			self.base_url = ""  # Overwrite with empty base
 
 		@property
@@ -123,7 +123,7 @@ def fake_request2():
 
 	class FakeApiClient2(API):
 		def __init__(self):
-			super().__init__("")
+			super().__init__("notempty")
 			self.base_url = ""  # Overwrite with empty base
 
 		@property
@@ -133,9 +133,13 @@ def fake_request2():
 	return FakeRequest2(FakeApiClient2(), json={})
 
 
+class ActionMixinTestClass(Icinga2Objects, ActionMixin):
+	"""Class to test the ActionMixin with."""
+
+
 def test_action(deep_fake_request):
 	"""Test Icinga2Objects.action()."""
-	obj = Icinga2Objects(request=deep_fake_request)
+	obj = ActionMixinTestClass(request=deep_fake_request)
 	# Fake returns a tuple of: method, url, json
 	method, url, body = obj.action("test-action", t1="param1", p2="param2")
 	assert method == "POST"

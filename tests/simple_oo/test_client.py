@@ -7,7 +7,6 @@ import pytest
 
 from ..icinga_mock import mock_session
 
-from icinga2api_py.models import APIResponse
 from icinga2api_py.results import ResultsFromResponse, CachedResultSet
 from icinga2api_py.simple_oo.client import Icinga2
 from icinga2api_py.simple_oo.base_objects import Icinga2Object, Icinga2Objects
@@ -44,8 +43,8 @@ def test_ooquery_decisions(icinga_client, req, expected_type):
 	# One post, one get
 	post = res.post()
 	res = res.get()
-	# Post must always be an APIResponse
-	assert isinstance(post, APIResponse)
+	# Post must always return an ResultsFromResponse
+	assert isinstance(post, ResultsFromResponse)
 	# For get it's given with the parameters
 	assert isinstance(res, expected_type)
 
@@ -53,4 +52,6 @@ def test_ooquery_decisions(icinga_client, req, expected_type):
 def test_create_object(icinga_client):
 	"""Test Icinga.create_object()."""
 	res = icinga_client.create_object("host", "host123", {})
-	# What to check here, other than that this should not raise any errors?
+	assert isinstance(res, ResultsFromResponse)
+	assert len(res) == 1
+	assert res[0]["code"] == 200

@@ -3,6 +3,7 @@
 
 import logging
 import functools
+from typing import Mapping, Sequence
 
 from ..api import API
 from ..simple_oo.base_objects import Icinga2Objects, Icinga2Object
@@ -67,7 +68,7 @@ class OOQuery(Query):
 		"""Decide what to do when this query object gets called, return a callable that handles the request."""
 		# Immediatelly send if the HTTP method is not GET and not overriden with GET
 		if self.method != "GET" and self.method_override != "GET":
-			return self.handle_request
+			return self.results_from_query
 
 		basetype, type_, name = self._url_infos()
 		if basetype in self.TYPES_AND_NAMES:
@@ -92,7 +93,7 @@ class OOQuery(Query):
 		"""Get a CachedResultSet with the given request."""
 		return CachedResultSet(request=request)
 
-	def object_from_query(self, type_, name, request):
+	def object_from_query(self, type_: str, name, request):
 		"""Get a appropriate Python object to represent whatever is requested with this query.
 
 		This method assumes, that a named object is singular (= one object). The name is not used.
@@ -111,7 +112,7 @@ class OOQuery(Query):
 class Icinga2(API):
 	"""An object oriented Icinga2 API client."""
 
-	def __init__(self, url, cache_time=float("inf"), **sessionparams):
+	def __init__(self, url: str, cache_time=float("inf"), **sessionparams):
 		super().__init__(url, **sessionparams)
 		self.cache_time = cache_time
 
@@ -127,9 +128,9 @@ class Icinga2(API):
 		"""Get basic API client."""
 		return API.clone(self)
 
-	def create_object(self, type_, name, attrs, templates=tuple(), ignore_on_error=False):
+	def create_object(self, type_: str, name, attrs: Mapping, templates: Sequence = tuple(), ignore_on_error=False):
 		"""Create an Icinga2 object through the API."""
 		type_ = type_.lower()
 		type_ = type_ if type_[-1:] == "s" else type_ + "s"
-		return self.client().objects.s(type_).s(name).templates(list(templates)).attrs(attrs)\
+		return self.objects.s(type_).s(name).templates(list(templates)).attrs(attrs)\
 			.ignore_on_error(bool(ignore_on_error)).put()  # Fire request immediately
