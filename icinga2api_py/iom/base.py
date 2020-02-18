@@ -7,8 +7,11 @@ import enum
 class Number(enum.Enum):
 	"""Whether a type should be in singular or plural form, or not specified (irrelevant)."""
 
+	#: Single object
 	SINGULAR = 1
+	#: Multiple objects
 	PLURAL = 2
+	#: Number of objects is unknown/irrelevant
 	IRRELEVANT = 0
 
 
@@ -30,26 +33,35 @@ class ParentObjectDescription:
 		:param parent: The parent object of the described object.
 		:param field: The field the described object is a value for the parent object.
 		"""
+		self.parent = parent
+		self.field = field
 		if parent is not None and field is not None:
 			# Has a parent
-			self.parent = parent
-			self.field = field
 			self.session = session or parent.parent_descr.session
-		elif session is not None:
-			# No parent object, just belongs to a session
+		elif session is not None and parent is None and field is None:
+			# The session is given and nothing else -> belongs to this session
 			self.session = session
+		elif session is not None:
+			# Session is given but also either field or parent but not both...
+			raise ValueError("Invalid parent object description parameters combination passed")
 		else:
 			# Invalid parameters
-			raise ValueError("Invalid parent object description parameters passed")
+			raise ValueError("Unable to build a parent object description: too few information given with parameters")
+
+	def __eq__(self, other):
+		return \
+			self.session == other.session and \
+			self.parent == other.parent and \
+			self.field == other.field
 
 
 class AbstractIcingaObject:
 	"""Base class for every other class representing a Icinga type."""
 
-	# The DESC is overriden in subclasses with the Icinga type description
+	#: The DESC is overriden in subclasses with the Icinga type description
 	DESC = {}
-	# The FIELDS is overriden in subclasses with all FIELDS and their description for the object type
-	# This includes the fields of parent classes of the subclass
+	#: The FIELDS is overriden in subclasses with all FIELDS and their description for the object type
+	#: This includes the fields of parent classes of the subclass
 	FIELDS = {}
 
 	###################################################################################################################
@@ -90,7 +102,15 @@ class AbstractIcingaObject:
 		parent_descr.
 		"""
 		args = list(args)
-		self._parent_descr = kwargs.pop("parent_descr", None) or args.pop()
+		self._parent_descr = kwargs.pop("parent_descr", None)
+
+		if self._parent_descr is None:
+			# Fallback: take last positional parameter as parent_descr
+			try:
+				self._parent_descr = args.pop()
+			except IndexError:
+				raise TypeError(f"{self.__class__.__name__} needs a parent_descr parameter to initialize successfully")
+
 		super().__init__(*args, **kwargs)
 
 	@property

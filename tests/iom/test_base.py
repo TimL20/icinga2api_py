@@ -89,6 +89,7 @@ def test_permissions(absicingao):
 	del absicingao.FIELDS["field_a"]["attributes"]["no_user_view"]
 	del absicingao.FIELDS["field_a"]["attributes"]["no_user_modify"]
 	assert absicingao.permissions("field_a") == (True, True)
+	assert absicingao.permissions("notexistant") == (True, True)
 
 
 def test_parent_descr(absicingao):

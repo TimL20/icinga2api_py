@@ -9,11 +9,10 @@ Below the encoder is a JSON decoder helper, that provides a object_pairs_hook me
 
 from json import JSONEncoder
 import datetime
-import functools
 import collections.abc
 
 from .base import Number, ParentObjectDescription, AbstractIcingaObject
-from ..results import Result
+from ..results import ResultSet
 
 
 class NativeValue(AbstractIcingaObject):
@@ -34,6 +33,9 @@ class NativeValue(AbstractIcingaObject):
 	def __str__(self):
 		return str(self._value)
 
+	def __eq__(self, other):
+		return self.value == other
+
 	@classmethod
 	def converter(cls, x):
 		"""Convert Python object to Icinga value, default does just return the object."""
@@ -48,44 +50,49 @@ def create_native_attribute_value_type(name, converter=None):
 		return type(name, (NativeValue, ), {"__module__": NativeValue.__module__})
 
 
-class TimestampMeta(type):
-	"""Metaclass for Timestamp."""
-	def __new__(mcs, name, parents, namespace):
-		cls = super().__new__(mcs, name, parents, namespace)
-		# Add properties for everything in "DATETIME_PROPERTIES"
-		for attr in cls.DATETIME_PROPERTIES:
-			setattr(cls, attr, property(functools.partialmethod(cls.get_property, attr)))
-		return cls
-
-
-class Timestamp(AbstractIcingaObject, metaclass=TimestampMeta):
+class Timestamp(NativeValue):
 	"""Icinga timestamp type.
 
 	A timestamp as a float on the Icinga side.
-	Here Timestamp is usable both as datetime.datetime as well as float (timestamp).
+	Here Timestamp is usable both as datetime.datetime as well as float (seconds since epoch).
 	"""
 
-	# TODO make Timetsamp working
-	# TODO add missing datetime properties
-
-	DATETIME_PROPERTIES = ("hour", "minute", "second")
+	#: Datetime attributes made available via __getattr__
+	DATETIME_ATTRIBUTES = {
+		"year", "month", "day", "toordinal", "weekday", "isoweekday", "isocalendar",
+		"hour", "minute", "second", "microsecond", "fold", "tzinfo", "utcoffset", "dst",
+		"timetuple", "timestamp", "date", "time",
+		"ctime", "isoformat", "strftime", "tzname",
+	}
 
 	def __init__(self, value, parent_descr):
-		super().__init__(parent_descr)
-		self._dt = datetime.datetime.utcfromtimestamp(value)
-
-	@classmethod
-	def convert(cls, obj, parent_descr):
-		return cls(obj, parent_descr)
+		super().__init__(value, parent_descr)
+		self._datetime = None
 
 	@property
 	def datetime(self):
 		"""Return an appropriate datetime.datetime object."""
-		return self._dt
+		if self._datetime is None:
+			self._datetime = datetime.datetime.fromtimestamp(self.value, datetime.timezone.utc)
+		return self._datetime
 
-	def get_property(self, property):
-		"""Get a property of datetime."""
-		return getattr(self.datetime, property)
+	def __getattr__(self, item):
+		"""Try to get an attribute of the datetime object."""
+		if item in self.DATETIME_ATTRIBUTES:
+			return getattr(self.datetime, item)
+		raise AttributeError(f"No such attribute: {item}")
+
+	# TODO implement timestamp manipulation
+
+	# TODO implement timestamp and float/int comparison
+
+	@classmethod
+	def converter(cls, x):
+		if isinstance(x, datetime.datetime):
+			return x.timestamp()
+		else:
+			# Handle as timestamp (seconds since epoch)
+			return float(x)
 
 
 class Duration(AbstractIcingaObject):
@@ -98,7 +105,7 @@ class Array(NativeValue, collections.abc.Sequence):
 	# TODO MutableSequence
 
 	def __init__(self, value, parent_descr):
-		super().__init__(value, parent_descr)
+		super().__init__(list(value), parent_descr)
 
 	@classmethod
 	def converter(cls, x):
@@ -122,8 +129,10 @@ class Dictionary(NativeValue, collections.abc.Mapping):
 	def converter(cls, x):
 		return dict(x)
 
-	# TODO - this is bad (design)
-	parse_attrs = Result.parse_attrs
+	@staticmethod
+	def parse_attrs(attrs):
+		"""Parse attrs with :meth:`icinga2api_py.results.ResultSet.parse_attrs`."""
+		return ResultSet.parse_attrs(attrs)
 
 	def __getitem__(self, item):
 		"""Mapping access with dot-syntax."""

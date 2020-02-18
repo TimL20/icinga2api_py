@@ -3,12 +3,12 @@
 Tests for the iom.simple_types module.
 """
 
-from datetime import datetime
+import datetime
 import pytest
 
 from ..icinga_mock import mock_session
 
-from icinga2api_py.iom.base import AbstractIcingaObject, Number
+from icinga2api_py.iom.base import AbstractIcingaObject, Number, ParentObjectDescription
 from icinga2api_py.iom.simple_types import Timestamp, Array, Dictionary
 from icinga2api_py.iom.session import Session
 
@@ -34,31 +34,51 @@ def types(session):
 	yield session.types
 
 
+DEFAULT_POD = ParentObjectDescription(0)
+
+
 @pytest.mark.parametrize("cls_name, value", (
 		("Number", 1),
 		("String", "abc"),
 		("Boolean", True),
-		("Timestamp", 1),
-		("Timestamp", datetime.now()),
-		("Array", (1, 2, 3)),
+		("Timestamp", 1),  # Timestamp doesn't work with datetime as init arg
+		("Array", [1, 2, 3]),
 		("Dictionary", {1: 2, 2: 3}),
 ))
 def test_basics(types, cls_name, value):
 	"""Test the basics for every simple_types type."""
 	cls = types.type(cls_name, number=Number.SINGULAR)
-	# TODO None as ParentObjectDescription should be discouraged...
-	obj = cls(value, None)
+	obj = cls(value, DEFAULT_POD)
 	assert obj.value == value
 	assert obj == value
-	assert cls.convert(value, None) == obj
+	assert cls.convert(value, DEFAULT_POD) == obj
 
 
-# TODO add Timestamp tests
+DATETIME = datetime.datetime.strptime("2020-01-02 04:06 +0000", "%Y-%m-%d %H:%M %z")
+
+
+@pytest.mark.parametrize("value", (
+		int(DATETIME.timestamp()),
+		float(DATETIME.timestamp()),
+		DATETIME,
+))
+def test_timestamp_compat(value):
+	"""Test that Timestamp is compatible to both float/int and datetime objects."""
+	ts = Timestamp.convert(value, DEFAULT_POD)
+	if isinstance(value, (float, int)):
+		assert ts.value == value
+	else:
+		assert ts.datetime == value
+
+	assert ts.hour == 4
+	assert ts.year == 2020
+
+	assert ts.strftime("%Y-%m-%d %H:%M %z") == "2020-01-02 04:06 +0000"
 
 
 def test_array():
 	"""Test simple_types.Array."""
-	array = Array((0, 1, 2), None)
+	array = Array((0, 1, 2), DEFAULT_POD)
 	assert array.value == [0, 1, 2]
 	assert array == [0, 1, 2]
 	assert len(array) == 3
@@ -68,12 +88,12 @@ def test_array():
 
 def test_dictionary():
 	"""Test simple_types.Dictionary."""
-	value = {1: 2, 2: 3}
-	dictionary = Dictionary(value, None)
+	value = {"1": 2, "2": 3}
+	dictionary = Dictionary(value, DEFAULT_POD)
 	assert len(dictionary) == len(value)
 	assert list(iter(dictionary)) == list(iter(value))
-	assert tuple(dictionary.keys()) == tuple(value)
-	assert tuple(dictionary.values()) == tuple(value)
-	assert tuple(dictionary.items()) == tuple(value)
+	assert tuple(dictionary.keys()) == tuple(value.keys())
+	assert tuple(dictionary.values()) == tuple(value.values())
+	assert tuple(dictionary.items()) == tuple(value.items())
 
 	# TODO test modification
