@@ -22,7 +22,12 @@ API_CLIENT_KWARGS = {
 @pytest.fixture(scope="module")
 def mocked_session() -> Session:
 	"""Icinga Session (client)."""
-	yield from mock_session(Session(URL, **API_CLIENT_KWARGS))
+	session = Session(URL, **API_CLIENT_KWARGS)
+	mock_session(session)
+	# Types object is already created at this point and therefore would remain "unmocked"
+	mock_session(session.types.request.api)
+	with session:
+		yield session
 
 
 @pytest.fixture(scope="module", params=["mocked", pytest.param("real", marks=pytest.mark.real)])

@@ -5,7 +5,7 @@ Tests for the simple_oo.client module.
 
 import pytest
 
-from ..icinga_mock import mock_session
+from ..icinga_mock import mock_session_handler
 
 from icinga2api_py.results import ResultsFromResponse, CachedResultSet
 from icinga2api_py.simple_oo.client import Icinga2
@@ -22,7 +22,7 @@ API_CLIENT_KWARGS = {
 @pytest.fixture(scope="module")
 def icinga_client():
 	"""Icinga client."""
-	yield from mock_session(Icinga2(URL, **API_CLIENT_KWARGS))
+	yield from mock_session_handler(Icinga2(URL, **API_CLIENT_KWARGS))
 
 
 @pytest.mark.parametrize("req,expected_type", (

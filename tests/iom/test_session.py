@@ -24,7 +24,12 @@ API_CLIENT_KWARGS = {
 @pytest.fixture(scope="module")
 def iom_session():
 	"""Icinga client."""
-	yield from mock_session(Session(URL, **API_CLIENT_KWARGS))
+	session = Session(URL, **API_CLIENT_KWARGS)
+	mock_session(session)
+	# Types object is already created at this point and therefore would remain "unmocked"
+	mock_session(session.types.request.api)
+	with session:
+		yield session
 
 
 @pytest.mark.parametrize("req,expected_type", (

@@ -1,7 +1,7 @@
 icinga2api_py
 ===============
 
-Simple access to the Icinga2 API on top of Python [requests](https://github.com/requests/requests).
+Simple access to the Icinga2 API on top of Python [requests](https://github.com/psf/requests).
 
 ## What you can do with it
 - Connect to an Icinga2 instance via API 

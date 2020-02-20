@@ -6,7 +6,7 @@ Test the clients module.
 from collections.abc import Mapping, Sequence
 import pytest
 
-from .icinga_mock import mock_session
+from .icinga_mock import mock_session_handler
 from .conftest import REAL_ICINGA
 from .test_api import ExampleResponses
 
@@ -35,20 +35,20 @@ def fake_response_accepting_class(response):
 @pytest.fixture(scope="module")
 def request_client():
 	"""Client returning the request on request handling."""
-	yield from mock_session(Client(URL, results_class=fake_request_accepting_class, **API_CLIENT_KWARGS))
+	yield from mock_session_handler(Client(URL, results_class=fake_request_accepting_class, **API_CLIENT_KWARGS))
 
 
 @pytest.fixture(scope="module")
 def response_client():
 	"""Client returning the request on request handling."""
-	yield from mock_session(Client(URL, results_class=fake_response_accepting_class, **API_CLIENT_KWARGS))
+	yield from mock_session_handler(Client(URL, results_class=fake_response_accepting_class, **API_CLIENT_KWARGS))
 
 
 @pytest.fixture(scope="module", params=["mocked", pytest.param("real", marks=pytest.mark.real)])
 def stream_client(request):
 	"""Client returning the request on request handling."""
 	if request.param == "mocked":
-		yield from mock_session(StreamClient(URL, **API_CLIENT_KWARGS))
+		yield from mock_session_handler(StreamClient(URL, **API_CLIENT_KWARGS))
 	else:
 		client = StreamClient(REAL_ICINGA["url"], **REAL_ICINGA["sessionparams"])
 		# With makes sure the session is closed

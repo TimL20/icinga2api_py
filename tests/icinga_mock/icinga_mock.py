@@ -6,10 +6,11 @@ It's quite dirty, but should do its work for the tests...
 """
 
 from collections import OrderedDict
-from collections.abc import Sequence, Mapping
+from collections.abc import Sequence
 from copy import deepcopy
 from io import BytesIO
 import json
+import os
 from urllib.parse import urlparse, unquote_plus
 
 from requests import Session
@@ -150,7 +151,7 @@ class Icinga:
 		if method == "PUT":
 			# Create object with parameters["attrs"] dict
 			if not name:
-				return 400  # TODO check that
+				return 404
 			self.object_data[otype][name] = dict()
 			self.object_data[otype][name]["attrs"] = parameters["attrs"]
 			return [{"code": 200, "status": "Object was created."}]
@@ -162,6 +163,8 @@ class Icinga:
 				objects.append(self.object_data[otype][name])
 			except KeyError:
 				return 404
+		else:
+			objects = list(self.object_data[otype].values())
 		# TODO Parse other filters than name...
 
 		if method == "GET":
@@ -181,10 +184,32 @@ class Icinga:
 
 		raise NotImplementedError(f"Method {method} is not implemented")
 
+	def types(self, subpath, request: PreparedRequest):
+		"""Handle /types request."""
+		method = get_method(request)
+		if method != "GET":
+			return 404
+
+		with open(os.path.join(os.path.dirname(__file__), "icinga_types.json"), 'r') as file:
+			data = json.load(file)
+
+		if not subpath:
+			# Return all
+			return {"status_code": 200, "body": json.dumps(data)}
+
+		# Return one object
+		for i, obj in enumerate(data["results"]):
+			if obj["name"] == subpath:
+				return {"status_code": 200, "body": {"results": json.dumps(data["results"][i])}}
+
+		return get_error(404)
+
 	def events(self, subpath, request: PreparedRequest):
 		"""Simulate event streams (without streaming)."""
 		# POST request to /v1/events and nothing else
-		if (subpath and subpath[0] != "?") or get_method(request) != "POST":
+		if get_method(request) != "POST":
+			return get_error(404)
+		if subpath and subpath[0] != "?":
 			return get_error(400)
 
 		parameters = get_parameters(request.url, request.body)
@@ -267,6 +292,11 @@ def mock_session(session: Session, *args, **kwargs):
 	adapter = IcingaMockAdapter(*args, **kwargs)
 	# HTTP because requests.PreparedRequest.prepare_url() handles only URLs starting with "http"
 	session.mount("http://", adapter)
+
+
+def mock_session_handler(session: Session, *args, **kwargs):
+	"""Add IcingaMockAdapter to the given session, remove all other adapters, close session after tests."""
+	mock_session(session, *args, **kwargs)
 	# With to make sure the session is closed after the tests
 	with session:
 		yield session

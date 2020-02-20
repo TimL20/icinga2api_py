@@ -27,7 +27,12 @@ API_CLIENT_KWARGS = {
 @pytest.fixture(scope="module")
 def session() -> Session:
 	"""Icinga Session (client)."""
-	yield from mock_session(Session(URL, **API_CLIENT_KWARGS))
+	session = Session(URL, **API_CLIENT_KWARGS)
+	mock_session(session)
+	# Types object is already created at this point and therefore would remain "unmocked"
+	mock_session(session.types.request.api)
+	with session:
+		yield session
 
 
 @pytest.fixture(scope="function")
@@ -59,7 +64,7 @@ TYPES_RESULT_TEST_PARAMETERS = (
 )
 def test_result(types, item, exp_type, ret_1):
 	"""Test Types.result()."""
-	if isinstance(exp_type, BaseException):
+	if issubclass(exp_type, BaseException):
 		with pytest.raises(exp_type):
 			_ = types.result(item)
 	else:

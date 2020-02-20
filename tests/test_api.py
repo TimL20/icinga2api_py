@@ -6,7 +6,7 @@ Test for layer 1 (request centered layer) of the icinga2api_py library.
 from collections.abc import Sequence, Mapping
 import pytest
 
-from .icinga_mock import mock_session, get_parameters
+from .icinga_mock import mock_session_handler, get_parameters
 from .conftest import REAL_ICINGA
 
 from icinga2api_py.api import API
@@ -58,7 +58,7 @@ def test_api_client_init2():
 @pytest.fixture(scope="module")
 def mocked_api_client() -> API:
 	"""Create a base API client with a mocked Icinga instance (only)."""
-	yield from mock_session(API(URL, **API_CLIENT_KWARGS))
+	yield from mock_session_handler(API(URL, **API_CLIENT_KWARGS))
 
 
 @pytest.fixture(scope="module", params=["mocked", pytest.param("real", marks=pytest.mark.real)])
@@ -274,7 +274,7 @@ def test_request_envmerge(mocked_api_client, monkeypatch):
 	# Make sure a "mock" proxy is not set
 	mocked_api_client.proxies.pop("mock", None)
 	# Set the settings hook
-	mock_session(mocked_api_client, settings_hook=settings_hook)
+	mock_session_handler(mocked_api_client, settings_hook=settings_hook)
 
 	# Monkey patching environment variables for testing
 	monkeypatch.setenv("MOCK_PROXY", proxy)

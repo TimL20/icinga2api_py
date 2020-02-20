@@ -6,7 +6,7 @@ Tests for the iom.simple_types module.
 import datetime
 import pytest
 
-from ..icinga_mock import mock_session
+from ..icinga_mock import mock_session_handler
 
 from icinga2api_py.iom.base import AbstractIcingaObject, Number, ParentObjectDescription
 from icinga2api_py.iom.simple_types import Timestamp, Array, Dictionary
@@ -24,7 +24,7 @@ API_CLIENT_KWARGS = {
 @pytest.fixture(scope="module")
 def session() -> Session:
 	"""Icinga Session (client)."""
-	yield from mock_session(Session(URL, **API_CLIENT_KWARGS))
+	yield from mock_session_handler(Session(URL, **API_CLIENT_KWARGS))
 
 
 @pytest.fixture(scope="function")
