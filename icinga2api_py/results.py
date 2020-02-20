@@ -525,5 +525,5 @@ class SingleResultMixin:
 		return collections.abc.ValuesView(self._raw)
 
 
-class Result(SingleResultMixin, ResultSet):
+class Result(SingleResultMixin, ResultSet, collections.abc.Mapping):
 	"""Icinga2 API request result (one from results)."""

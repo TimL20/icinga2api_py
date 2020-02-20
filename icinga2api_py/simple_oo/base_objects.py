@@ -2,6 +2,7 @@
 """This module contains the basic representations of Icinga2 configuration objects.
 """
 
+import collections.abc
 import logging
 from typing import Iterable
 
@@ -166,7 +167,7 @@ class Icinga2ObjectList(ResultList):
 	# TODO add modify and delete methods
 
 
-class Icinga2Object(SingleResultMixin, Icinga2Objects):
+class Icinga2Object(SingleResultMixin, Icinga2Objects, collections.abc.Mapping):
 	"""Object representing exactly one Icinga2 configuration object.
 	Do not use an object of this class with a request that may return more than one result. This can cause
 	trouble, and as other objects than the first one are ignored it's not possible to notice.

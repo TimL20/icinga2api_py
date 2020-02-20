@@ -11,23 +11,23 @@ from .base import Number, AbstractIcingaObject
 class Types(CachedResultSet):
 	"""A class to create Python classes from the Icinga type definitions."""
 
-	# Map some Icinga object types directly to Python types
+	#: Map some Icinga object types directly to Python types (lowercase to handle things case-insensitive)
 	ICINGA_PYTHON_TYPES = {
 		# Base classes for everything else...
-		"Object": IcingaObject,
-		"Objects": IcingaObjects,
+		"object": IcingaObject,
+		"objects": IcingaObjects,
 		# Configuration objects are what this IOM part is all about, they have special classes
-		"ConfigObject": IcingaConfigObject,
-		"ConfigObjects": IcingaConfigObjects,
+		"configobject": IcingaConfigObject,
+		"configobjects": IcingaConfigObjects,
 
 		# Mapping of simple types defined in the simple_types module
-		"Number": create_native_attribute_value_type("Number", float),
-		"String": create_native_attribute_value_type("String", str),
-		"Boolean": create_native_attribute_value_type("Boolean", bool),
-		"Timestamp": Timestamp,
-		"Array": Array,
-		"Dictionary": Dictionary,
-		"Value": create_native_attribute_value_type("Value"),  # ???????????????????? # TODO check // or issue?
+		"number": create_native_attribute_value_type("Number", float),
+		"string": create_native_attribute_value_type("String", str),
+		"boolean": create_native_attribute_value_type("Boolean", bool),
+		"timestamp": Timestamp,
+		"array": Array,
+		"dictionary": Dictionary,
+		"value": create_native_attribute_value_type("Value"),  # ???????????????????? # TODO check // or issue?
 		# Duration does not appear over API(?)
 	}
 
@@ -66,8 +66,12 @@ class Types(CachedResultSet):
 		raise KeyError("Found no such type: {}".format(item))
 
 	def type(self, item, number=Number.IRRELEVANT):
-		"""Get an Icinga object type by its name. Both singular and plural names are accepted.
-		A class for this type is returned. It's possible to specify whether to return the singular or the plural type."""
+		"""Get an Icinga object type by its name.
+
+		Both singular and plural names are accepted.
+		A class for the type given by string is returned. It's possible to specify whether to return the singular or
+		the plural type.
+		"""
 		# Handle singular/plural first, to avoid problems related to that in general
 		if number == Number.SINGULAR:
 			item = item[:-1] if item[-1] == 's' else item
@@ -76,9 +80,9 @@ class Types(CachedResultSet):
 		else:
 			number = Number.PLURAL if item[-1] == 's' else Number.PLURAL
 
-		if item in self.ICINGA_PYTHON_TYPES:
+		if item.lower() in self.ICINGA_PYTHON_TYPES:
 			# Types mapped directly for advanced functionality
-			return self.ICINGA_PYTHON_TYPES[item]
+			return self.ICINGA_PYTHON_TYPES[item.lower()]
 
 		with self._lock:
 			if item in self._classes:

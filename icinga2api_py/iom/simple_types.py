@@ -123,10 +123,14 @@ class Dictionary(NativeValue, collections.abc.Mapping):
 	# TODO MutableMapping
 
 	def __init__(self, value, parent_descr):
+		# Icinga may return (JSON) null (=Python None) for an empty dict (e.g. empty vars)
+		value = value if value is not None else dict()
 		super().__init__(value, parent_descr)
 
 	@classmethod
 	def converter(cls, x):
+		# Icinga may return (JSON) null (=Python None) for an empty dict (e.g. empty vars)
+		x = x if x is not None else dict()
 		return dict(x)
 
 	@staticmethod

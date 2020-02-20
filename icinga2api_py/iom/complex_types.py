@@ -6,7 +6,9 @@ a class here.
 No thread-safety (yet).
 """
 
+import collections.abc
 import json
+import time
 
 from .exceptions import NoUserView, NoUserModify
 from ..results import ResultSet, CachedResultSet, SingleResultMixin
@@ -72,7 +74,7 @@ class SingleObjectMixin(SingleResultMixin):
 			raise AttributeError
 
 
-class IcingaObject(SingleObjectMixin, IcingaObjects):
+class IcingaObject(SingleObjectMixin, IcingaObjects, collections.abc.Mapping):
 	"""Representation of exactly one Icinga object."""
 
 	@classmethod
@@ -86,8 +88,8 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 	This is the parent class of all dynamically created Icinga configuration object type classes."""
 
 	def __init__(self, results=None, response=None, request=None, cache_time=float("inf"), next_cache_expiry=None,
-				parent_descr=None, json_kwargs=None):
-		super().__init__(results, response, request, cache_time, next_cache_expiry, json_kwargs)
+				parent_descr=None, timefunc=time.time, json_kwargs=None):
+		super().__init__(results, response, request, cache_time, next_cache_expiry, timefunc, json_kwargs=json_kwargs)
 		IcingaObjects.__init__(self, results, parent_descr=parent_descr)
 
 		# JSON Decoding
