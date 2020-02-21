@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 
-from .api import API
-from .clients import Client, Icinga2
-from .results import ResultSet, ResultsFromResponse, ResultsFromRequest, ResultList, Result
+__version__ = "0.7.0"
+__author__ = "Tim Lehner"
 
-__version__ = "0.5.1"
+from .api import API
+from .clients import Client, StreamClient
+from .simple_oo import Icinga2
+from .results import ResultSet, ResultsFromResponse, ResultsFromRequest, ResultList, Result

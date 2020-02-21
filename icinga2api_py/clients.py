@@ -1,61 +1,107 @@
 # -*- coding: utf-8 -*-
-"""This module will contain almost all of the different Icinga2 API clients."""
+"""This module contains client classes for getting in touch with the Icinga2 API, but only of the layer 2 of this
+library. See the docs for more information."""
+
+import json
 
 from .api import API
-from .models import Query, APIResponse
-from .results import ResultsFromResponse, ResultsFromRequest
-from .base_objects import Icinga2Objects, Icinga2Object
-from . import objects
+from .models import Query
+from .results import ResultsFromResponse, Result
+
+
+class ClientQuery(Query):
+	"""A flexible query, trying to return everything as the results_class of the Client object."""
+
+	def handle_request(self, request):
+		"""Handle the request by passing it to the Client's results_class if possible, pass the response otherwise."""
+		try:
+			# Try to pass the request
+			return self.api.results_class(request=request, **self.api.results_parameters)
+		except TypeError:
+			# Failed to pass the request, pass the response
+			# The request.send() method will use API.create_response(), which returns a APIResponse
+			return self.api.results_class(response=request.send(), **self.api.results_parameters)
 
 
 class Client(API):
-	"""Icinga2 API client for non-streaming content, without objects."""
+	"""Standard Icinga2 API client for non-streaming content."""
+
+	def __init__(self, url, results_class=None, results_parameters=None, **sessionparams):
+		"""The client takes, compared two the simpler API client, two additional parameters for customization.
+
+		:param url: The base URL as for :class:`API`
+		:param results_class: The class (or any other callable) to create the results with. The given class or callable
+			get passed an :class:`icinga2api_py.models.APIRequest` as a "request" parameter value. If that fails with a
+			TypeError (which it	does if there is no "request" keyword argument), a
+			:class:`icinga2api_py.models.APIResponse` is passed as a "response" parameter value (that is required to s
+			ucceed).
+			This scenario is designed this way to support both :class:`icinga2api_py.results.ResultsFromRequest` and
+			:class:`icinga2api_py.results.ResultsFromResponse` based classes.
+		:param results_init_parameters: Keyword arguments (as a dict) that are additionally passed to the
+			``results_class``
+		:param sessionparams: Session parameters as for :class:`API`
+		"""
+		super().__init__(url, **sessionparams)
+		self.results_parameters = results_parameters or dict()
+		self.results_class = results_class or ResultsFromResponse
+
+	@property
+	def request_class(self):
+		return ClientQuery
+
+
+class StreamClient(API):
+	"""Icinga2 API client for streamed content."""
+
 	def __init__(self, url, **sessionparams):
+		sessionparams["stream"] = True
 		super().__init__(url, **sessionparams)
 
-	@staticmethod
-	def create_response(response):
-		"""Return ResultSet with APIResponse with given response."""
-		return ResultsFromResponse(APIResponse(response))
+	def create_response(self, response):
+		"""Create a stream of Result objects.
 
+		The streamed events have a format that differ from any other Icinga2 API response (JSON objects on lines
+		instead of on object containing results). Also this can't be implemented as a sized container of results, and
+		the connection is not closed automatically after results are consumed (as new results are streamed).
+		That why this is a class very different from the other results classes.
+		"""
+		return self.ResultsStream(response)
 
-class Icinga2(API):
-	"""A client for the object oriented part."""
-	def __init__(self, url, cache_time=float("inf"), **sessionparams):
-		super().__init__(url, **sessionparams)
-		self.cache_time = cache_time
-		self.request_class = Query
-		self._client = None
+	class ResultsStream:
+		"""Return Result objects for streamed lines."""
 
-	def client(self):
-		"""Get non-OOP interface client. This is done by calling clone() of super()."""
-		return Client.clone(self)
+		#: Response attributes, properties and methods that are made available in :meth:`__getattr__`
+		response_attrs = {
+			"status_code", "headers", "url", "history", "reason", "cookies", "elapsed", "request",
+			"__bool__", "__nonzero__",
+			"ok", "is_redirect", "is_permanent_redirect", "next", "links", "raise_for_status",
+		}
 
-	@staticmethod
-	def results_from_query(request):
-		"""Returns a ResultsFromRequest with the given request."""
-		return ResultsFromRequest(request)
+		def __init__(self, response):
+			self._response = response
 
-	def object_from_query(self, type_, request, name=None, **kwargs):
-		"""Get a appropriate python object to represent whatever is requested with the request.
-		This method assumes, that a named object is singular (= one object). The name is not used.
-		Remaining kwargs are passed to the constructor (Icinga2Object, Host, ...)."""
-		type_ = type_[:-1] if name is not None and type_[-1] == "s" else type_
-		class_ = getattr(objects, type_.title(), None)
-		initargs = {"cache_time": self.cache_time}
-		if name is not None:
-			initargs["name"] = name
-		initargs.update(kwargs)
-		if class_ is not None:
-			return class_(request, **initargs)
-		if name is not None:
-			# it's one object if it has a name
-			return Icinga2Object(request, **initargs)
-		return Icinga2Objects(request, **initargs)
+		def __getattr__(self, item):
+			"""Some response attributes are made available here."""
+			if item in self.response_attrs:
+				return getattr(self._response, item)
 
-	def create_object(self, type_, name, attrs, templates=tuple(), ignore_on_error=False):
-		"""Create an Icinga2 object through the API."""
-		type_ = type_.lower()
-		type_ = type_ if type_[-1:] == "s" else type_ + "s"
-		return self.client().objects.s(type_).s(name).templates(list(templates)).attrs(attrs)\
-			.ignore_on_error(bool(ignore_on_error)).put()  # Fire request immediately
+			raise AttributeError(f"No such attribute: {item}")
+
+		def __iter__(self):
+			"""Yield Result objects for every line received."""
+			for line in self._response.iter_lines():
+				if line:
+					res = json.loads(line)
+					yield Result((res, ))
+
+		def close(self):
+			"""Close stream connection."""
+			self._response.close()
+
+		def __enter__(self):
+			"""Usage as an context manager closes the stream connection automatically on exit."""
+			return self
+
+		def __exit__(self, exc_type, exc_val, exc_tb):
+			"""Usage as an context manager closes the stream connection automatically on exit."""
+			self.close()
