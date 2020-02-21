@@ -487,19 +487,30 @@ class SingleResultMixin:
 			# Behave like an empty dict, e.g. when keys() is called
 			return dict()
 
+	@staticmethod
+	def attr_value(attrs, obj):
+		"""Get the attr value of an object.
+
+		:param attrs: Sequence of items to access recursively
+		:param obj: The Mapping object from where to access the attr values
+		:return: obj[attrs[0]][attrs[1]]...[attrs[len(attrs)-1]]
+		:raises: KeyError if further mapping access was not possible.
+		"""
+		item = attrs
+		try:
+			for item in attrs:
+				obj = obj[item]
+			return obj
+		except (KeyError, ValueError):
+			raise KeyError(f"No such key: {item}")
+
 	def __getitem__(self: SingleResultMixinType, item):
 		"""Implements Mapping and sequence access in one."""
 		if isinstance(item, int) or isinstance(item, slice):
 			return self.result(item)
 
-		# Mapping access
-		try:
-			ret = self._raw
-			for item in self.parse_attrs(item):
-				ret = ret[item]
-			return ret
-		except (KeyError, ValueError):
-			raise KeyError("No such key: {}".format(item))
+		# Mapping access: Get attr of raw result
+		return self.attr_value(self.parse_attrs(item), self._raw)
 
 	def __contains__(self: SingleResultMixinType, item):
 		"""Whether there is a value for the given key, or the value is in the results list."""

@@ -7,13 +7,12 @@ No thread-safety (yet).
 """
 
 import collections.abc
-import json
 import time
+import typing
 
 from .exceptions import NoUserView, NoUserModify
 from ..results import ResultSet, CachedResultSet, SingleResultMixin
 from .base import Number, AbstractIcingaObject, ParentObjectDescription
-from .simple_types import JSONResultEncoder, JSONResultDecodeHelper
 
 # Possible keys of an objects query result
 OBJECT_QUERY_RESULT_KEYS = {"name", "type", "attrs", "joins", "meta"}
@@ -39,29 +38,46 @@ class IcingaObjects(AbstractIcingaObject, ResultSet):
 			raise TypeError(f"{obj.__class__.__name__} could not be converted to a {cls.__name__} object")
 
 
+_SingleObjectType = typing.Union["SingleObjectMixin", IcingaObjects]
+
+
 class SingleObjectMixin(SingleResultMixin):
 	"""Extending SingleResultMixin with better field access."""
 
-	def __getitem__(self, item):
+	def field_value_object(self: _SingleObjectType, field):
+		"""Get an object for the value of the given field."""
+		# Check no_user_view
+		if self.permissions(field)[0]:
+			raise NoUserView(f"Not allowed to view field {field}")
+
+		value = self._raw["attrs"][field]
+		try:
+			type_ = self.FIELDS[field]["type"]
+			type_ = self.session.types.type(type_, Number.SINGULAR)
+		except KeyError:
+			type_ = None
+		if type_:
+			# Type is assumed to be an AbstractIcingaObject
+			parent_descr = ParentObjectDescription(parent=self, field=field)
+			return type_.convert(value, parent_descr)
+		else:
+			# No type conversion at all, because explicitely suppressed or type is not supported
+			return value
+
+	def __getitem__(self: _SingleObjectType, item):
 		"""Implements sequence and mapping access in one."""
 		if isinstance(item, (int, slice)):
 			return super().__getitem__(item)
 
 		# Mapping access
 		attr = self.parse_attrs(item)
-		if attr[0] == "attrs":
-			# Check no_user_view
-			if self.permissions(attr[1])[0]:
-				raise NoUserView("Not allowed to view attribute {}".format(attr))
+		if attr[0] == "attrs" and len(attr) > 1:
+			obj = self.field_value_object(attr[1])
+			return self.attr_value(attr[2:], obj)
+		else:
+			return super().__getitem__(attr)
 
-		obj = super().__getitem__(attr)
-		try:
-			# Return value property if possible, useful for native types
-			return obj.value
-		except AttributeError:
-			return obj
-
-	def __getattr__(self, attr):
+	def __getattr__(self: _SingleObjectType, attr):
 		"""Get value of a field."""
 		attr = self.parse_attrs(attr)
 		if attr[0] == "attrs" and attr[1] not in self.FIELDS:
@@ -91,9 +107,6 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 				parent_descr=None, timefunc=time.time, json_kwargs=None):
 		super().__init__(results, response, request, cache_time, next_cache_expiry, timefunc, json_kwargs=json_kwargs)
 		IcingaObjects.__init__(self, results, parent_descr=parent_descr)
-
-		# JSON Decoding
-		self._json_kwargs["object_pairs_hook"] = JSONResultDecodeHelper(self).object_pairs_hook
 
 	def result(self, index):
 		"""Return an object representation for the object at this index of results."""
@@ -229,10 +242,7 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		# Copy original JSON body and overwrite attributes for modification
 		data = dict(mquery.json)["attrs"] = {}
 		data["attrs"] = modification
-		# JSON Encoding
-		mquery.data = json.dumps(data, cls=JSONResultEncoder)
-		# Should not be neccessary because requests uses data first, but avoids confusion
-		mquery.json = dict()
+		mquery.json = data
 		# Fire modification query (returns APIResponse object)
 		return mquery()
 

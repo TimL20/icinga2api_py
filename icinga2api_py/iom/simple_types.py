@@ -4,10 +4,8 @@ This module defines simple mapped object types, especially object types natively
 
 There is also a JSON Encoder in this module, that is able to encode all AttributeValue objects.
 Below the encoder is a JSON decoder helper, that provides a object_pairs_hook method for decoding.
-# TODO move the JSON things to a different module, they don't fit here anymore
 """
 
-from json import JSONEncoder
 import datetime
 import collections.abc
 
@@ -153,60 +151,3 @@ class Dictionary(NativeValue, collections.abc.Mapping):
 
 	def __iter__(self):
 		return self._value.__iter__()
-
-
-class JSONResultEncoder(JSONEncoder):
-	"""Encode Python representation of result(s) to JSON."""
-
-	def default(self, o):
-		try:
-			# Just serialize the value, works with NativeValue
-			return o.value
-		except AttributeError:
-			pass
-		super().default(o)
-
-
-class JSONResultDecodeHelper:
-	"""Helper for decoding JSON encoded results. Provides a object_pairs_hook."""
-
-	def __init__(self, parent_object):
-		self._parent_object = parent_object
-
-	def object_pairs_hook(self, pairs):
-		"""The object_pairs_hook for JSON-decoding."""
-		res = {}
-		for key, value in pairs:
-			if key == "results":
-				# Final conversion for everything else than list and dict depending on the parent_object's fields
-				value = self.final_conversion(value)
-			res[key] = value
-		return res
-
-	def final_conversion(self, objects):
-		"""Final type conversion for passed objects. The conversion depends on the parent_object's fields and their
-		types."""
-		# Return value
-		ret = []
-		# Iterate over objects
-		for obj in objects:
-			# New object
-			res = {"attrs": {}}
-			for key, value in obj.get("attrs", dict()).items():
-				try:
-					type_ = self._parent_object.FIELDS[key]["type"]
-					type_ = self._parent_object.session.types.type(type_, Number.SINGULAR)
-				except KeyError:
-					type_ = None
-				if type_:
-					# Type needs to be an AbtractIcingaObject for this to work
-					parent_descr = ParentObjectDescription(parent=self._parent_object, field=key)
-					res["attrs"][key] = type_.convert(value, parent_descr)
-				else:
-					# No type conversion at all, because explicitely suppressed or type is not supported
-					res["attrs"][key] = value
-
-			obj.update(res)
-			ret.append(obj)
-
-		return ret
