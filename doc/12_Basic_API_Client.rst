@@ -4,14 +4,16 @@ Basic API Client
 There is a very basic API client in icinga2api_py.api named API, which
 is a usefull wrapper around
 `requests <https://github.com/requests/requests>`__. This client is
-there to make building a request for the Icinga2 API easy. By default,
+there to make building a request for the Icinga2 API easy. The client is
+easy to customize by extending it in a subclass. By default,
 the requests and responses built by this Client are
-``models.APIRequest``\ s and ``models.APIResponse``\ s. The
-``APIResponse`` object is the really similar to the Response object
-returned from a requests request to the Icinga2 API (and that is not a
-coincidence). The Client uses and inherits from requests.Session, this
-way data like e.g. authentication data is stored for all requests done
-with this client.
+:class:`icinga2api_py.models.APIRequest`\ s and
+:class:`icinga2api_py.models.APIResponse`\ s. The ``APIResponse`` object
+is very similar to the Response object returned from a requests request
+to the Icinga2 API (and that is not a coincidence).
+
+The Client uses and inherits from requests.Session, this way data for
+e.g. authentication is stored for all requests made with this client.
 
 Construct an API client
 -----------------------
@@ -25,17 +27,17 @@ Constructing an API client is easily done with a base URL and optionally some pa
    # Constructor
    apiclient = API(url, **sessionparams)
 
-   # Alternative constructor
-   apiclient = API.from_pieces(host, [port], [url_prefix], **sessionparams)
+   # Example
+   apiclient = API(
+       "https://icingahost:5665",
+       auth=("user", "pass"),
+       verify="./icingahost.ca"
+   )
 
-   # Examples
-   apiclient = API("https://icingahost:5665/v1/", auth=("user", "pass"), verify="./icingahost.ca")
-
--  The url is the Icinga2 API URL endpoint base including the API
-   version. Example: "https://localhost:5665/v1/"
+-  The url is the Icinga2 API URL endpoint base.
    The client will try to append default scheme (https), port (5665) and
-   API version (v1) if not specified, so the following URL will do the
-   same as the URL above: "localhost"
+   API version (v1) if not specified, so the following URLs will do the
+   same as the URL above: "localhost", "localhost:5665", ...
 -  The sessionparams (keyword arguments) are key-value-pairs of
    attributes for the Session. Every requests.Session attribute is
    possible. It is important to use it for authentication.
@@ -57,26 +59,28 @@ Just look at these examples:
 
    client.objects.services.s("localhost!test1").get()
 
-These three are the simplest type of request. What they do is to just
+These three are the simplest type of a request. What they do is to just
 make, build (and fire) a request to a URL with a HTTP method. Let’s look
 closer at this:
 
 ::
 
-   <apiclient object>    .     status      .     IcingaApplication    .    get          ()
+   <apiclient object> . status . IcingaApplication . get  ()
 
-The space and dot separated parts of this line say the following: - Use
-this initialized API client (that’s obvious) which knows things as the
-base URL and authentication - Add /status to the known base URL - Add
-/IcingaApplication to the URL - Override HTTP method with GET
-(X-HTTP-Method-Override is used) - Fire the request (these are the
-brackets, as an ``APIRequest`` object sends the request whenever it’s
-called)
+The five space and dot separated parts of this line say the following:
+
+- Use this initialized API client (that’s obvious) that knows things as
+  the base URL and authentication
+- Add /status to the known base URL
+- Add /IcingaApplication to the URL
+- Override HTTP method with GET (X-HTTP-Method-Override is used)
+- Fire the request (these are the brackets, as an ``APIRequest`` object
+  sends the request whenever it’s called)
 
 So that will just build the URL <baseurl>/status/IcingaApplication,
-overrides the HTTP method with get and fires the request (on the API
+overrides the HTTP method with get and fires the request (using the API
 session). If you like to look closer, leave out the brackets after the
-HTTP method, that will give you a ``icinga2api_py.models.APIRequest``.
+HTTP method, that will give you a :class:`icinga2api_py.models.APIRequest`.
 The APIRequest objects are callable, and will fire the requests on call.
 
 As you can see, you usually just build a URL with converting the / in
@@ -87,21 +91,36 @@ want to use the special method ``s``. This method does exactly the same
 as ``__getattr__`` would do usually (see the third request example
 above).
 
-Add something to the body
--------------------------
-
-Adding something to the JSON body is very easy:
+You can also do it a bit more fancy like this:
 
 ::
 
-   <apiclient>.objects.hosts.filter("host.name==\"localhost\"").attrs(["state"]).get()
-   <apiclient>.objects.services.filter("service.name==\"load\"").attrs("state", "state_type").joins(["host.state"]).get()
+   (client / "status" / "IcingaApplication").get()
+
+
+Add something to the body
+-------------------------
+
+Adding something to the JSON body is done with calling an "attribute"
+while building the request:
+
+::
+
+   <apiclient>.objects.hosts\
+       .filter("host.name==\"localhost\"")\
+       .attrs(["state"]).get()
+
+   <apiclient>.objects.services\
+       .filter("service.name==\"load\"")\
+       .attrs("state", "state_type")\
+       .joins(["host.state"]).get()
 
 Just call a method between the URL building and the HTTP method. The
 name of this method becomes the dictionary key in the body, the method
 argument gets the value. If you give more than one argument, the value
-automatically gets a list of all arguments. Unlike URL building, order
-is not important here.
+automatically gets a list of all arguments. Adding multiple values is
+also possible by repeating the key-and-value calls.
+Omitting any values inside the "method" parenthesis will delete this key.
 
 URL parameters
 --------------
@@ -123,12 +142,12 @@ Second possibility: Manipulate the request:
    req()
 
 The second one is for the usecase, that firing the request is done
-somewhere else as building it.
+somewhere else than building it.
 
 Response parsing
 ----------------
 
-By default, any responses are ``models.APIResponse`` similiar to those
-returned directly returned from request. To change that behavior, you
-could create a subclass overriding the ``create_response`` of the
-``API`` class, which is called with the original requests response.
+By default, any responses are :class:`icinga2api_py.models.APIResponse`
+similiar to those returned directly returned from request. To change that
+behavior, a subclass may override the ``create_response`` of the
+``API`` class, which is called with the original ``requests.Response``.

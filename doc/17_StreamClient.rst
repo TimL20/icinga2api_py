@@ -28,6 +28,6 @@ also done when leaving the with block, so the with-statement is the
 preffered way of doing this. The ``ResultStream`` is an iterable, that
 returns a ``Result`` for each received line (event).
 
-As the StreamClient just returns every line received as a ``Result``, so
+As the StreamClient just returns every line received as a ``Result``,
 it will also work on non-streamed content, but the returned ``Result``
-objects are different from that of the non-streaming client.
+objects are very different from that of the non-streaming client.

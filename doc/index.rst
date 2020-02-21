@@ -6,22 +6,26 @@
 Welcome to icinga2api_py's documentation!
 =========================================
 
-Indices and tables
-==================
+This documentation is split up in two major parts:
+- The easy-to-understand "documentation" with less information
+- The auto-generated "reference", harder to understand but more information
 
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
 
 Contents
 ========
 
 .. toctree::
    :maxdepth: 4
-   :numbered:
 
    documentation
    reference
+
+Indices and tables
+==================
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`
 
 
 

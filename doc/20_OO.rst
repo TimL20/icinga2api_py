@@ -45,7 +45,7 @@ Getting a bunch of Icinga2 configuration objects is really easy:
    from icinga2api_py import Icinga2
 
    # Get an Icinga2 object
-   icinga = Icinga2.from_pieces(host, auth=(username, password))
+   icinga = Icinga2(host, auth=(username, password))
 
    # Get a bundle of objects
    services = icinga.objects.services.filter("service.state==1").get()
@@ -64,8 +64,9 @@ develop our example to query all service states of localhost easily:
    localservices = localhost.services
 
    list(localservices.fields("attrs.state"))  # Returns a list of all service states
+
    if localservices:
-       # Loading did not fail and minimum one service in localservices
+       # Minimum one service in localservices
        localservices[0]["name"]  # Name of one service
 
    # TODO: maybe more examples...
@@ -89,8 +90,9 @@ will prevent resetting if set to True. Both methods return a
    localservices.modify({"vars.test123": "TEST VALUE"})
 
    # Delete localhost object cascading (!)
+   # Due to no_invalidate we may access localhost's data further
+   # (until cache expiry)
    localhost.delete(cascade=True, no_invalidate=True)
-   # With no_invalidate set to True it's maybe possible (depending on cache expiry) to access localhost data further on
 
 
 For Icinga object types supporting actions (hosts, services) their
@@ -151,7 +153,7 @@ Here just some random examples:
    ivars = icinga.variables.get()
    print("This Icinga instance has {} global variables!".format(len(ivars)))
 
-   # Get Icinga app status - the IcingaApplication is handled as a configuration object (arguable)
+   # Get Icinga app status, which is handled similar to a configuration object
    app = icinga.status.IcingaApplication.get()["status"]["icingaapplication"]["app"]
    dif = time.time() - app["program_start"]
    print("Icinga runs for {} seconds now".format(dif))

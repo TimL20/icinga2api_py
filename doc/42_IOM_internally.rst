@@ -4,12 +4,8 @@ Icinga Object Mapping - “Behind the scenes”
 This chapter aims to give an overview of how the IOM feature works
 internally, behind the “frontend” library API.
 
-The chapter was written after I started reading my own code after not
-working at it for months. At least now, the code is actually not
-well-written - it should be refactored later…
-
-But at least the different parts of functionality are in different
-modules.
+The chapter was written when I started reading my own code after not
+working at it for months.
 
 session
 -------
@@ -89,7 +85,7 @@ in which case B has an field, whose value is A. In this case, parent and
 field have to be known. In case an object has no parent (= is not a
 value for a field of another object), this description contains the
 session the object belongs to. The session attribute will reference to
-the session no matter which case is chosen. In case no session is given,
+the session no matter which case is chosen. In case a parent is given,
 the session reference is copied from the parent object.
 
 simple_types

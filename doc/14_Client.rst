@@ -16,10 +16,11 @@ objects returned from each query with the client.
 ResultSet
 ---------
 
-A ``ResultSet`` object represents a set of results returned from the
-Icinga2 API. This class is not an ABC (abstract base class), although
-it’s not meant to be instanciated (rarely useful). ``ResultSet``
-implements lot’s of feature for inspecting results from Icinga2:
+An :class:`icinga2api_py.results.ResultSet` object represents a set of
+results returned from the Icinga2 API.
+This class is not an ABC (abstract base class), although it’s not meant
+to be instanciated (rarely useful). ``ResultSet`` implements lot’s of
+features for inspecting results from Icinga2:
 
 - It’s a sequence. The “items” are ``Result`` objects (built on demand).
   You can get those ``Result``\ s by their index or iterate over them.
@@ -29,6 +30,9 @@ implements lot’s of feature for inspecting results from Icinga2:
   ``ResultSet`` is returned.
 - Every ``ResultSet`` has a ``load`` method and a ``loaded`` property,
   both useless with a general ``ResultSet``, but used in subclasses.
+- Any fields (attrs) can be specified  with the dot-syntax
+  e.g. "attrs.last_check_result.output" to get the output value of the
+  last_check_result dictionary of the attrs dictionary.
 - ``fields`` is a generator that yields all values of one attribute of
   all results in the ``ResultSet``. You can specify what to do if the
   attribute does not exist for an attribute (raise_nokey and
@@ -97,8 +101,8 @@ Result
 
 Objects of the class ``Result`` are created e.g. dynamically (on demand)
 from ``ResultSet`` and subclasses (by default) on accessing one item.
-``Result`` objects are (immutable) Mappings. This is extended with
-parsing accessed sub-attributes with the dot-syntax:
+``Result`` objects are (immutable) Mappings. They accept the dot-syntax
+for sub-attribute access
 
 ::
 
@@ -108,8 +112,8 @@ parsing accessed sub-attributes with the dot-syntax:
 
 Objects of this classes behave like mappings *and* sequences.
 
-- The length is always 1 (use ``len(result.keys())`` to get the number of
-  keys) - sequence behavior
+- The length is always 0 or 1 (use ``len(result.keys())`` to get the
+  number of keys) - sequence behavior
 - Iterating will always just yield the object itself (exactly one time) -
   this is the sequence behavior
 - When the mapping behavior is needed, use ``keys()`` explicitely
@@ -120,43 +124,46 @@ Examples
 ::
 
    from icinga2api_py import Client
-   client = Client.from_pieces(host, auth=(username, password))  # Create a client as with API
+   # Create a client as with API
+   client = Client.from_pieces("https://icinga:5665", auth=(user, passwd))
 
-   appstatus = client.status.IcingaApplication.get()  # Get a ResultsFromResponse object
+   # Get a ResultsFromResponse object
+   appstatus = client.status.IcingaApplication.get()
 
-   pid = appstatus[0]["status"]["icingaapplication"]["app"]["pid"]  # Get something particular
-   print("Icinga runs with PID {}".format(int(pid)))  # int() as all JSON numbers are float by default
+   # Get something particular, int() as all JSON numbers are float by default
+   pid = int(appstatus[0]["status"]["icingaapplication"]["app"]["pid"])
+   print("Icinga runs with PID {}".format(pid))
 
 
-   # Get one ResultsFromResponse containing every host Icinga knows (possibly bad idea on a large system)
-   hosts = client.objects.hosts.get()
-   # Iterate over all hosts
+   # Get one ResultsFromResponse containing every host that is down
+   hosts = client.objects.hosts.filter("host.state==1").get()
+   # Iterate over all those hosts
    for host in hosts:
-       print("Host {} has state {}".format(host["name"], host["attrs"]["state"]))
+       print(f"Host {host['name']} is down")
 
 
+   # How much hosts are down
+   print(f"Currently {len(hosts)} are down")
 
-   # How much hosts does our monitoring know?
-   print("Our monitoring knows currently {} host(s)".format(len(hosts)))
+   # Print all host names (= get all "name" fields)
+   print(", ".join(hosts.fields("name")))
 
-   # Print all host names (= get all "name" values)
-   print(", ".join(hosts.values("name")))
-
-   # Are all hosts down? (= have all attrs.state attributes the value 1)
+   # Are they really all down? (= have all attrs.state attributes the value 1)
    if hosts.are_all("attrs.state", 1):
-       print("Everything is down")
+       print("They are really down!")
 
    # Is minimum one host down (= has min. one attrs.state attribute the value 1)
    if hosts.min_one("attrs.state", 1):
        print("At least one host is down")
 
-   # List host names of hosts, that are down
-   down = hosts.where("attrs.state", 1).fields("name")
-   print("The following host(s) are down: {}".format(", ".join(down)))
+   # List host names of hosts, that are in hard state
+   down = hosts.where("attrs.state_type", 1).fields("name")
+   print("The following host(s) are in hard state: " + ", ".join(down))
 
 
-   # Get value of attribute output in dictionary last_check_result in dictionary attrs
-   localhost["attrs.last_check_result.output"]  # Output of last check result
+   # Output of last check result
+   # Get value of attribute output in dictionary last_check_result in attrs
+   localhost["attrs.last_check_result.output"]
 
 These are just some examples. You may not want to use these things as
 described above. But they are fine, and: they are also available when

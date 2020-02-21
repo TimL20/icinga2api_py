@@ -53,12 +53,12 @@ Simple-OO layer
 ---------------
 
 -  “Object oriented” layer
--  Makes working with Icinga configuration objects easier, e.g. provides
-   methods to modify or delete such an object
+- Focuses on working with Icinga configuration objects, e.g. provides
+  methods to modify and delete such objects
 
 IOM
 ---
 
 -  “Icinga object mapping” aims to map every object in Icinga to an
    appropriate Python object
--  In development, not really working yet
+-  In development, not fully working yet

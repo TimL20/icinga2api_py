@@ -54,7 +54,16 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = 'sphinxdoc'
+html_theme = 'alabaster'
+html_theme_options = {
+    "description": "Simple Icinga2 API access",
+    "page_width": "auto",
+    "github_user": "TimL20",
+    "github_repo": "icinga2api_py",
+    "github_button": True,
+    # By default, the sidebar width is too small for "icinga2api_py" without linebreak
+    "sidebar_width": "280px",  # Default is 220px
+}
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -71,3 +80,10 @@ todo_include_todos = True
 
 # Include __init__ docstrings
 autoclass_content = 'both'
+
+autodoc_default_options = {
+    # Order attributes by occurance in source code
+    "member-order": "bysource",
+    # Include some special methods
+    "special-members": "__call__, __getattr__, __setattr__"
+}

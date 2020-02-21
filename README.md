@@ -11,28 +11,29 @@ Simple access to the Icinga2 API on top of Python [requests](https://github.com/
 - Modify and delete objects, also multiple objects at once
 - Actions (acknowledge, ...), also for multiple objects at once
 - Receive easy-to-use objects from event streams
-- Everything with the Icinga 2 API is somehow possible
+- Everything the Icinga2 API is capable of is somehow possible
 
 ## Usage examples
 
-```
+```python
 from icinga2api_py import Icinga2
 
-icinga = Icinga2("https://icingahost:5665/v1/", auth=("username", "passwd"))
+icinga = Icinga2("https://icinga:5665", auth=("username", "passwd"))
 
 localhost = icinga.objects.hosts.localhost.get()
 
 if not localhost["attrs.state"]:  # if state is not up
     print("The host 'localhost' seems to be down.")
 
-print("The host localhost has the following services:")
-print(", ".join(localhost.services.values("name")))
+# Iterate over service objects
+for service in localhost.services:
+    print(f"Service {service['name']} on {service.host['name']} has state {service['attrs.state']}")
 ```
 
 ## Notice, that ...
 - ... knowledge of the Icinga2 API is recommended
-- ... Python 3 is required
-- ... as soon as I think it's a bit stable, I will put it on pypi (for easy pip installation);
+- ... Python >=3.6 is required
+- ... as soon as I think it's a bit stable, I will put it on PyPi (for easy pip installation);
  and it will get a version number >1.0 as soon as it's really stable. Both things haven't happen yet.
 
 ## How to install

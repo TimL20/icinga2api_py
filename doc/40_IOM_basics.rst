@@ -14,4 +14,16 @@ Session
 A ``Session`` object is a client that provides access to Icinga
 configuration objects that are automatically mapped to Python objects.
 
-TODO: add examples
+Examples
+~~~~~~~~~
+
+::
+
+   from icinga2api_py import Session
+   session = Session("https://icinga:5665", auth=(user, password))
+
+   host = session.objects.hosts.localhost.get()
+   print(f"Host {host.name} has state {host.state}")
+
+
+TODO: add more examples
