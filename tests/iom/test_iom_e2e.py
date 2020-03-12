@@ -9,6 +9,7 @@ from ..icinga_mock import mock_session
 from ..conftest import REAL_ICINGA
 
 from icinga2api_py.iom.session import Session
+from icinga2api_py.iom.exceptions import NoUserModify
 
 
 URL = "http://icinga:1234/v1/"
@@ -60,6 +61,76 @@ def test_hosts2(session):
 
 	host0 = hosts[0]
 	assert host0.state in (0, 1)
+
+
+def test_modify1(session):
+	"""Test IcingaConfigObject modification for one object."""
+	obj = session.objects.hosts.localhost.get()
+	value = "b" if obj.notes == "a" else "a"
+	# Modify the object
+	obj.notes = value
+	# Check that the object itself was modified
+	assert obj.notes == value
+
+	# Query the object again to check that the modification was flushed
+	obj = session.objects.hosts.localhost.get()
+	assert obj.notes == value
+
+	# Test that NoUserModify is raised for this very simple case
+	with pytest.raises(NoUserModify):
+		obj.name = "abc"
+
+
+def test_modify2a(session):
+	"""Test IcingaConfigObject dictionary modification for one object."""
+	obj = session.objects.hosts.localhost.get()
+	val1 = 2 if getattr(obj.vars, "val1", 1) == 1 else 1
+
+	# Modify the object
+	obj.vars.val1 = val1
+	# Check, that the object itself was modified
+	assert obj.vars.val1 == val1
+
+	# Query the object again to check that the modification was flushed
+	obj = session.objects.hosts.localhost.get()
+	assert obj.vars.val1 == val1
+
+
+def test_modify2b(session):
+	"""Test IcingaConfigObject modification with multiple modifications sequentially."""
+	obj = session.objects.hosts.localhost.get()
+	val1 = 2 if getattr(obj.vars, "val1", 1) == 1 else 1
+	val2 = 2 if getattr(obj.vars, "val2", 1) == 1 else 1
+
+	# Modify the object
+	obj.vars.val1 = val1
+	obj.vars.val2 = val2
+	# Check, that the object itself was modified
+	assert obj.vars.val1 == val1
+	assert obj.vars.val2 == val2
+
+	# Query the object again to check that the modification was flushed
+	obj = session.objects.hosts.localhost.get()
+	assert obj.vars.val1 == val1
+	assert obj.vars.val2 == val2
+
+
+def test_modify3(session):
+	"""Test IcingaConfigObject modification with multiple modifications."""
+	obj = session.objects.hosts.localhost.get()
+	val1 = 2 if getattr(obj.vars, "val1", 1) == 1 else 1
+	val2 = 2 if getattr(obj.vars, "val2", 1) == 1 else 1
+
+	# Modify the object
+	obj.modify({"vars.val1": val1, "vars.val2": val2})
+	# Check, that the object itself was modified
+	assert obj.vars.val1 == val1
+	assert obj.vars.val2 == val2
+
+	# Query the object again to check that the modification was flushed
+	obj = session.objects.hosts.localhost.get()
+	assert obj.vars.val1 == val1
+	assert obj.vars.val2 == val2
 
 
 # TODO improve the existing tests and add more

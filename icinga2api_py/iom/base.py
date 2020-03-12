@@ -26,7 +26,7 @@ class ParentObjectDescription:
 	session reference is copied from the parent object.
 	"""
 
-	def __init__(self, session=None, parent=None, field=None):
+	def __init__(self, session=None, parent: "AbstractIcingaObject" = None, field=None):
 		"""Init the parent object description, also see class docstring.
 
 		:param session: The session the object belongs to, can be None if parent and field is set.
@@ -47,6 +47,11 @@ class ParentObjectDescription:
 		else:
 			# Invalid parameters
 			raise ValueError("Unable to build a parent object description: too few information given with parameters")
+
+	def decouple(self):
+		"""Make sure the parent object descriptions is not coupled to a parent."""
+		self.parent = None
+		self.field = None
 
 	def __eq__(self, other):
 		return \
@@ -74,7 +79,10 @@ class AbstractIcingaObject:
 		return self.DESC["name"]
 
 	def _field_type(self, attr):
-		"""Return type class for a field given by name."""
+		"""Return type class for a field given by name.
+
+		:raises KeyError: If the attr is not a field or its type name is not a valid type.
+		"""
 		typename = self.FIELDS[attr]["type"]
 		# Field types are always singular
 		return self.session.types.type(typename, number=Number.SINGULAR)

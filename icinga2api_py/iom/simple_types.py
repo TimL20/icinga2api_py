@@ -9,7 +9,9 @@ Below the encoder is a JSON decoder helper, that provides a object_pairs_hook me
 import datetime
 import collections.abc
 
+
 from .base import Number, ParentObjectDescription, AbstractIcingaObject
+from .exceptions import NoUserModify
 from ..results import ResultSet
 
 
@@ -46,6 +48,9 @@ def create_native_attribute_value_type(name, converter=None):
 		return type(name, (NativeValue, ), {"converter": converter, "__module__": NativeValue.__module__})
 	else:
 		return type(name, (NativeValue, ), {"__module__": NativeValue.__module__})
+
+
+# TODO add simple native types to make them importable
 
 
 class Timestamp(NativeValue):
@@ -116,9 +121,10 @@ class Array(NativeValue, collections.abc.Sequence):
 		return self._value.__len__()
 
 
-class Dictionary(NativeValue, collections.abc.Mapping):
+class Dictionary(NativeValue, collections.abc.MutableMapping):
 	"""Icinga Dictionary attribute type. Also something like a dictionary here."""
-	# TODO MutableMapping
+
+	# TODO implement nested dictionaries
 
 	def __init__(self, value, parent_descr):
 		# Icinga may return (JSON) null (=Python None) for an empty dict (e.g. empty vars)
@@ -146,8 +152,49 @@ class Dictionary(NativeValue, collections.abc.Mapping):
 		except (KeyError, ValueError):
 			raise KeyError("No such key: {}".format(item))
 
+	def modify(self, modification):
+		"""Modify this dictionary."""
+		# Let the parent object handle modification if there is one
+		if self.parent_descr.parent is not None:
+			# Parse all attrs and prefix with field
+			modification = {(self.parent_descr.field, *self.parse_attrs(key)): val for key, val in modification.items()}
+			# Propagate modification to let the parent handle it
+			return self.parent_descr.parent.modify(modification)
+
+		for key, value in modification.items():
+			temp = self._value
+			attrs = self.parse_attrs(key)
+			for subkey in attrs[:-1]:
+				temp = temp.setdefault(subkey, dict())
+			temp[attrs[-1]] = value
+
+	def __setitem__(self, item, value):
+		"""Set a value of a specific item."""
+		self.modify({item: value})
+
+	def __delitem__(self, item):
+		"""Delete an item."""
+		raise NoUserModify("Deleting an item is not supported (yet)")  # TODO implement
+
 	def __len__(self):
 		return self._value.__len__()
 
 	def __iter__(self):
 		return self._value.__iter__()
+
+	def __getattr__(self, item):
+		"""Get a value, basically lets __getitem__ do the work"""
+		try:
+			return self.__getitem__(item)
+		except KeyError:
+			raise AttributeError(f"Unable to find value for {item}")
+
+	def __setattr__(self, item, value):
+		"""Set a value with __setitem__ unless handled."""
+		if item[0] == "_":
+			return super().__setattr__(item, value)
+		return self.__setitem__(item, value)
+
+	def __delattr__(self, item):
+		"""Delete an item with __delitem__."""
+		return self.__delitem__(item)

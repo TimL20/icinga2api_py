@@ -147,6 +147,12 @@ class Icinga:
 
 		# Parse attrs
 		parameters["attrs"] = parse_attrs(parameters.get("attrs", dict()))
+		# Translate <otype>.attr to attrs.attr
+		d = dict(parameters["attrs"])
+		for key, value in d.items():
+			if f"{key[0]}s" == otype.lower():
+				del parameters["attrs"][key]
+				parameters["attrs"][key[1:]] = value
 
 		if method == "PUT":
 			# Create object with parameters["attrs"] dict
