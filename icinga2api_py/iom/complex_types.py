@@ -214,21 +214,20 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 			if self.permissions(attr[1])[1]:
 				raise NoUserModify("No permission to modify attribute {}".format(key))
 
-			# TODO what if modification contains multiple modifications for one field?
-			# 	This is not handled yet, one change would override the other
-			# 	This is tested by tests.iom.test_iom_e2e.test_modify3
-
 			if len(attr) == 2:
 				# Modify whole field
 				change[attr[1]] = self.field_value_object(attr[1], oldvalue)
 			else:
 				# Modify subfield
 				# Create empty type of the field, which supports subfields
-				change[attr[1]] = self.field_value_object(attr[1], None)
+				fobj = self.field_value_object(attr[1], None)
 				# Decouple field object from its parent (this IcingaConfigObject)
 				# This way it does handle modification itself rather than propagating it (which whould led to recursion)
-				change[attr[1]].parent_descr.decouple()
-				change[attr[1]][tuple(attr[2:])] = oldvalue
+				fobj.parent_descr.decouple()
+				fobj[tuple(attr[2:])] = oldvalue
+
+				# Use the part of fobj that was "changed" for the returned changes, use a string-key
+				change[".".join(attr[1:])] = fobj[attr[2:]]
 
 		return change
 
@@ -239,11 +238,10 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		This method checks if modification is allowed, converts the values and sends the modification to Icinga.
 		If Icinga returns a HTTP status_code<400 attribute values are also written to the objects results cache.
 		"""
-		# TODO support partial modification of sub-attrs, this modifies the whole field
 		modification = self._modify_prepare(modification)
 		# TODO guarantee that values get converted correctly...
 		# This is only guaranteed to work for NativeValue objects
-		modification = {key: value.value for key, value in modification.items()}
+		modification = {key: getattr(value, "value", value) for key, value in modification.items()}
 
 		ret = self._modify_icinga(modification)
 		try:
@@ -259,7 +257,16 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		"""Modify the internal (cached) attribute values ("attrs" field only)."""
 		for res in self.results:
 			for key, value in modification.items():
-				res["attrs"][key] = value
+				# The following part is neccesary to support partial changes of e.g. dictionaries
+				temp = res["attrs"]
+				attrs = self.parse_attrs(key)
+				for subkey in attrs[1:-1]:
+					if temp[subkey] is None:
+						# Unfortunately, for Icinga a Dictionary can be Null/None
+						# As to this point Icinga has accepted the change, None must therefore be a dictionary
+						temp[subkey] = dict()
+					temp = temp.setdefault(subkey, dict())
+				temp[attrs[-1]] = value
 
 	def _modify_icinga(self, modification) -> APIResponse:
 		"""Send a modification request to Icinga and return the response."""

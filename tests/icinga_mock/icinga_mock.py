@@ -182,6 +182,10 @@ class Icinga:
 				obj = obj["attrs"]
 				for key, value in parameters["attrs"].items():
 					o = obj
+					# Special case for vars, because they can be None
+					if key[0] == "vars" and o["vars"] is None:
+						o["vars"] = dict()
+
 					for attr in key[:-1]:
 						o = o[attr]
 					o[key[-1]] = value
