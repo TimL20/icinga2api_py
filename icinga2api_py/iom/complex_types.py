@@ -190,21 +190,6 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		# else
 		return split
 
-	def __setattr__(self, key, value):
-		"""Modify object value(s) if the attribute name is a field of this object type. Otherwise default behavior."""
-		# TODO propably this method should be for the singular form only...
-		if key and key[0] == '_':
-			# Default behavior for private attributes
-			return super().__setattr__(key, value)
-
-		attrs = self.parse_attrs(key)
-		if len(attrs) > 1 and attrs[1] not in self.FIELDS:
-			# Fallback to default for non-fields
-			return super().__setattr__(key, value)
-
-		# Modify this object
-		self.modify({tuple(attrs): value})
-
 	def _modify_prepare(self, modification) -> typing.Mapping:
 		"""Prepare modification: Unify the modification mapping.
 
@@ -291,3 +276,17 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 
 class IcingaConfigObject(SingleObjectMixin, IcingaConfigObjects):
 	"""Representation of an Icinga object."""
+
+	def __setattr__(self, key, value):
+		"""Modify object value(s) if the attribute name is a field of this object type. Otherwise default behavior."""
+		if key and key[0] == '_':
+			# Default behavior for private attributes
+			return super().__setattr__(key, value)
+
+		attrs = self.parse_attrs(key)
+		if len(attrs) > 1 and attrs[1] not in self.FIELDS:
+			# Fallback to default for non-fields
+			return super().__setattr__(key, value)
+
+		# Modify this object
+		self.modify({tuple(attrs): value})
