@@ -133,4 +133,25 @@ def test_modify3(session):
 	assert obj.vars.val2 == val2
 
 
+def test_modify_nested(session):
+	"""Test modification of nested dictionary."""
+	obj = session.objects.hosts.localhost.get()
+	# Test two different ways, just to check that both succeed
+	obj.vars.nested = {"one": {1: 2}}
+	obj.vars.nested.two = {2: 3}
+
+	# Modify one value
+	obj.vars.nested.one[1] = 0
+	assert obj.vars.nested.one == {"1": 0}  # String "1" because Icinga handles all keys as strings
+
+	# Add value to dict
+	obj.vars.nested.two[0] = 0
+	assert obj.vars.nested.two == {"2": 3, "0": 0}
+
+	# Check that modifications were flushed
+	obj = session.objects.hosts.localhost.get()
+	assert obj.vars.nested.one == {"1": 0}
+	assert obj.vars.nested.two == {"2": 3, "0": 0}
+
+
 # TODO improve the existing tests and add more

@@ -7,7 +7,7 @@ Below the encoder is a JSON decoder helper, that provides a object_pairs_hook me
 """
 
 import datetime
-import collections.abc
+from collections.abc import Sequence, Mapping, MutableMapping
 
 
 from .base import Number, ParentObjectDescription, AbstractIcingaObject
@@ -32,6 +32,9 @@ class NativeValue(AbstractIcingaObject):
 
 	def __str__(self):
 		return str(self._value)
+
+	def __repr__(self):
+		return f"<{self.__class__.__name__}: {repr(self._value)}>"
 
 	def __eq__(self, other):
 		return self.value == other
@@ -85,8 +88,6 @@ class Timestamp(NativeValue):
 			return getattr(self.datetime, item)
 		raise AttributeError(f"No such attribute: {item}")
 
-	# TODO implement timestamp manipulation
-
 	# TODO implement timestamp and float/int comparison
 
 	@classmethod
@@ -103,32 +104,98 @@ class Duration(AbstractIcingaObject):
 	# TODO implement
 
 
-class Array(NativeValue, collections.abc.Sequence):
-	"""Icinga Array attribute type. A sequence here."""
-	# TODO MutableSequence
+class _NativeContainerMixin:
+	"""Base type for containers.
+
+	This is basically a collections of utility functions both Dictionary and Array use.
+	"""
+
+	def _convert_container(self, key, value):
+		"""If value is a container, convert it to an appropriate type (Dictionary or Array)."""
+		# This isinstance checks are fine as long as value is created by the default JSON parser
+		if isinstance(value, list):
+			return Array(value, ParentObjectDescription(parent=self, field=key))
+		elif isinstance(value, Mapping):
+			return Dictionary(value, ParentObjectDescription(parent=self, field=key))
+		return value
+
+	@classmethod
+	def _ensure_mapping_string_keys(cls, mapping: Mapping):
+		"""Recursively ensure that every key of the mapping is a string (because Icinga only knows strings as keys).
+
+		To make things easy, this will actually create a new dictionary.
+		"""
+		ret = dict()
+		for key, value in mapping.items():
+			if isinstance(value, Mapping):
+				ret[str(key)] = cls._ensure_mapping_string_keys(value)
+			elif isinstance(value, Sequence):
+				ret[str(key)] = cls._ensure_sequence_string_keys(value)
+			else:
+				ret[str(key)] = value
+		return ret
+
+	@classmethod
+	def _ensure_sequence_string_keys(cls, sequence: Sequence):
+		"""For every item of the sequence: recursively ensure that all possible dictionaries have string keys."""
+		ret = list()
+		for item in sequence:
+			if isinstance(item, Mapping):
+				ret.append(cls._ensure_mapping_string_keys(item))
+			elif isinstance(item, Sequence):
+				ret.append(cls._ensure_sequence_string_keys(item))
+			else:
+				ret.append(item)
+
+		return ret
+
+
+class Array(NativeValue, _NativeContainerMixin, Sequence):
+	"""Icinga Array type.
+
+	A sequence implementation here. Note that this type is not mutable (because Icinga seems not to support array item
+	modification).
+	"""
 
 	def __init__(self, value, parent_descr):
-		super().__init__(list(value), parent_descr)
+		value = list(value)
+		# Ensure string keys for every possible dict in the sequence
+		value = self._ensure_sequence_string_keys(value)
+		super().__init__(value, parent_descr)
 
 	@classmethod
 	def converter(cls, x):
 		return list(x)
 
 	def __getitem__(self, item):
-		return self._value.__getitem__(item)
+		return self._convert_container(item, self._value.__getitem__(item))
 
 	def __len__(self):
 		return self._value.__len__()
 
+	def __eq__(self, other):
+		# Compare equal to both list and tuple
+		try:
+			return super().__eq__(other) or (list(other) == self.value and not isinstance(other, str))
+		except TypeError:
+			return NotImplemented
 
-class Dictionary(NativeValue, collections.abc.MutableMapping):
-	"""Icinga Dictionary attribute type. Also something like a dictionary here."""
 
-	# TODO implement nested dictionaries
+class Dictionary(NativeValue, _NativeContainerMixin, MutableMapping):
+	"""Icinga Dictionary attribute type.
+
+	This is also implemented as a dictionary here, but with some differences:
+	- None is treated as an empty dict
+	- All keys are (recursively) ensured to be strings, because Icinga only handles string keys
+	- Any modification is propagated to the parent (if there is a parent), so that the parent can propagate to its \
+		parent (and so on), so that the modification is send to Icinga
+	"""
 
 	def __init__(self, value, parent_descr):
 		# Icinga may return (JSON) null (=Python None) for an empty dict (e.g. empty vars)
 		value = value if value is not None else dict()
+		# Ensure all keys are strings
+		value = self._ensure_mapping_string_keys(value)
 		super().__init__(value, parent_descr)
 
 	@classmethod
@@ -140,6 +207,10 @@ class Dictionary(NativeValue, collections.abc.MutableMapping):
 	@staticmethod
 	def parse_attrs(attrs):
 		"""Parse attrs with :meth:`icinga2api_py.results.ResultSet.parse_attrs`."""
+		if not isinstance(attrs, Sequence):
+			# attrs is not a string, not a list and not a tuple...
+			# Icinga itself handles only string keys in dictionaries, so attrs are converted to strings here
+			attrs = str(attrs)
 		return ResultSet.parse_attrs(attrs)
 
 	def __getitem__(self, item):
@@ -148,7 +219,7 @@ class Dictionary(NativeValue, collections.abc.MutableMapping):
 			ret = self._value
 			for item in self.parse_attrs(item):
 				ret = ret[item]
-			return ret
+			return self._convert_container(item, ret)
 		except (KeyError, ValueError):
 			raise KeyError("No such key: {}".format(item))
 
@@ -166,7 +237,12 @@ class Dictionary(NativeValue, collections.abc.MutableMapping):
 			attrs = self.parse_attrs(key)
 			for subkey in attrs[:-1]:
 				temp = temp.setdefault(subkey, dict())
-			temp[attrs[-1]] = value
+
+			if isinstance(value, Mapping):
+				# Make sure all keys are strings to handle things like Icinga does
+				temp[attrs[-1]] = self._ensure_mapping_string_keys(value)
+			else:
+				temp[attrs[-1]] = value
 
 	def __setitem__(self, item, value):
 		"""Set a value of a specific item."""
@@ -174,7 +250,7 @@ class Dictionary(NativeValue, collections.abc.MutableMapping):
 
 	def __delitem__(self, item):
 		"""Delete an item."""
-		raise NoUserModify("Deleting an item is not supported (yet)")  # TODO implement
+		raise NoUserModify("Deleting an item is not supported (yet)")
 
 	def __len__(self):
 		return self._value.__len__()

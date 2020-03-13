@@ -43,7 +43,7 @@ DEFAULT_POD = ParentObjectDescription(0)
 		("Boolean", True),
 		("Timestamp", 1),  # Timestamp doesn't work with datetime as init arg
 		("Array", [1, 2, 3]),
-		("Dictionary", {1: 2, 2: 3}),
+		("Dictionary", {"a": 1, "b": 2}),
 ))
 def test_basics(types, cls_name, value):
 	"""Test the basics for every simple_types type."""
@@ -96,4 +96,13 @@ def test_dictionary():
 	assert tuple(dictionary.values()) == tuple(value.values())
 	assert tuple(dictionary.items()) == tuple(value.items())
 
-	# TODO test modification
+
+@pytest.mark.parametrize("cls, value, res", (
+		(Dictionary, {1: {2: 3}}, {"1": {"2": 3}}),
+		(Dictionary, {1: [{2: 3}]}, {"1": [{"2": 3}]}),
+		(Array, [0, {1: [{2: 3}]}], [0, {"1": [{"2": 3}]}])
+))
+def test_nested(cls, value, res):
+	"""Test nested Dictionary / Array objects, especially their key conversion to strings."""
+	obj = cls(value, DEFAULT_POD)
+	assert obj == res
