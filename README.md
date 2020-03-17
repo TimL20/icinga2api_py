@@ -33,7 +33,7 @@ for service in localhost.services:
 ## Notice, that ...
 - ... knowledge of the Icinga2 API is recommended
 - ... Python >=3.6 is required
-- ... as soon as I think it's a bit stable, I will put it on PyPi (for easy pip installation);
+- ... as soon as I think it's more stable, I will put it on PyPi (for easy pip installation);
  and it will get a version number >1.0 as soon as it's really stable. Both things haven't happen yet.
 
 ## How to install
@@ -45,4 +45,4 @@ Clone this repository and install via setup.py, for example like this:
  $ python setup.py install
  ```
 
-Development takes place on the dev branch.
+Development takes place on different branches than the master branch.
