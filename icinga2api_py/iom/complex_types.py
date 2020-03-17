@@ -7,13 +7,15 @@ No thread-safety (yet).
 """
 
 import collections.abc
-import json
 import time
+import typing
 
+from requests import HTTPError
+
+from icinga2api_py.models import APIResponse
 from .exceptions import NoUserView, NoUserModify
 from ..results import ResultSet, CachedResultSet, SingleResultMixin
 from .base import Number, AbstractIcingaObject, ParentObjectDescription
-from .simple_types import JSONResultEncoder, JSONResultDecodeHelper
 
 # Possible keys of an objects query result
 OBJECT_QUERY_RESULT_KEYS = {"name", "type", "attrs", "joins", "meta"}
@@ -38,30 +40,50 @@ class IcingaObjects(AbstractIcingaObject, ResultSet):
 		except (TypeError, IndexError, KeyError):
 			raise TypeError(f"{obj.__class__.__name__} could not be converted to a {cls.__name__} object")
 
+	def field_value_object(self, field, value):
+		"""Get an object for the given field with the given value."""
+		# Check no_user_view
+		if self.permissions(field)[0]:
+			raise NoUserView(f"Not allowed to view field {field}")
+
+		try:
+			type_ = self._field_type(field)
+		except KeyError:
+			type_ = None
+		if type_:
+			# Type is assumed to be an AbstractIcingaObject
+			parent_descr = ParentObjectDescription(parent=self, field=field)
+			return type_.convert(value, parent_descr)
+		else:
+			# No type conversion at all, because explicitely suppressed or type is not supported
+			return value
+
+
+_SingleObjectType = typing.Union["SingleObjectMixin", IcingaObjects]
+
 
 class SingleObjectMixin(SingleResultMixin):
 	"""Extending SingleResultMixin with better field access."""
 
-	def __getitem__(self, item):
+	def field_object(self: _SingleObjectType, field):
+		"""Get an object for the value of the given field."""
+		value = self._raw["attrs"][field]
+		return self.field_value_object(field, value)
+
+	def __getitem__(self: _SingleObjectType, item):
 		"""Implements sequence and mapping access in one."""
 		if isinstance(item, (int, slice)):
 			return super().__getitem__(item)
 
 		# Mapping access
 		attr = self.parse_attrs(item)
-		if attr[0] == "attrs":
-			# Check no_user_view
-			if self.permissions(attr[1])[0]:
-				raise NoUserView("Not allowed to view attribute {}".format(attr))
+		if attr[0] == "attrs" and len(attr) > 1:
+			obj = self.field_object(attr[1])
+			return self.attr_value(attr[2:], obj)
+		else:
+			return super().__getitem__(attr)
 
-		obj = super().__getitem__(attr)
-		try:
-			# Return value property if possible, useful for native types
-			return obj.value
-		except AttributeError:
-			return obj
-
-	def __getattr__(self, attr):
+	def __getattr__(self: _SingleObjectType, attr):
 		"""Get value of a field."""
 		attr = self.parse_attrs(attr)
 		if attr[0] == "attrs" and attr[1] not in self.FIELDS:
@@ -91,9 +113,6 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 				parent_descr=None, timefunc=time.time, json_kwargs=None):
 		super().__init__(results, response, request, cache_time, next_cache_expiry, timefunc, json_kwargs=json_kwargs)
 		IcingaObjects.__init__(self, results, parent_descr=parent_descr)
-
-		# JSON Decoding
-		self._json_kwargs["object_pairs_hook"] = JSONResultDecodeHelper(self).object_pairs_hook
 
 	def result(self, index):
 		"""Return an object representation for the object at this index of results."""
@@ -151,9 +170,11 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		Also on a <Type> that is in the list of joins (looked up in the request):
 		"<typename>.last_check_result.output" -> ["joins", <typename>, "last_check_result", "output"]
 		"""
-		split = super().parse_attrs(attrs)
+		split = list(super().parse_attrs(attrs))
 
 		# First key (name, type, attrs, joins, meta) - defaults to attrs
+		# TODO make the lookups safe (maybe put lookups into other methods?)
+		# TODO what is with attrs restriction in the request? That doesn't work...
 		if split[0] not in OBJECT_QUERY_RESULT_KEYS:
 			# First key of attrs is not one that is handled "naturally"
 			if split[0].lower() == self.type.lower():
@@ -161,6 +182,7 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 				return ["attrs"] + split[1:]
 			elif split[0] in self._request.json.get("joins", tuple()):
 				# Type in joins
+				# TODO this will not work with joined attributes
 				return ["joins"] + split
 			else:
 				# Default is to insert "attrs" at the start
@@ -168,17 +190,46 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		# else
 		return split
 
-	def __setattr__(self, key, value):
-		"""Modify object value(s) if the attribute name is a field of this object type. Otherwise default behavior."""
-		# Short circuiting is essential here, because parse_attrs may fail when the object is not fully initialized yet
-		if (key and key[0] == '_') or (self.parse_attrs(key)[1] not in self.FIELDS):
-			# Fallback to default for non-fields
-			return super().__setattr__(key, value)
+	def _modify_prepare(self, modification) -> typing.Mapping:
+		"""Prepare modification: Unify the modification mapping.
 
-		# Modify this object
-		# With Python 3.8 a walrus operator could be used to avoid parse_attrs a second time...
-		# Can't be used above, because short-circuiting is essential there
-		self.modify({key: value})
+		After this step, the returned modification mapping has the form <field> -> <Object of the field's type>,
+		or <field> -> <subfield> -> ... -> <value> (in case of sub-fields)
+		- no matter how it has been before (unless invalid or not allowed).
+
+		:raises NoUserModify: When modification is not allowed for whatever reason.
+		:raises KeyError: When something else is odd.
+		"""
+		change = dict()
+		for oldkey, oldvalue in modification.items():
+			attr = self.parse_attrs(oldkey)
+			key = ".".join(attr)
+
+			# Check if modification is allowed
+			if attr[0] == "joins":
+				raise NoUserModify("Modification of a joined object is not supported.")
+			elif attr[0] != "attrs" or len(attr) <= 1:
+				raise NoUserModify("Not allowed to modify attribute {}. Not an attribute.".format(key))
+
+			if self.permissions(attr[1])[1]:
+				raise NoUserModify("No permission to modify attribute {}".format(key))
+
+			if len(attr) == 2:
+				# Modify whole field
+				change[attr[1]] = self.field_value_object(attr[1], oldvalue)
+			else:
+				# Modify subfield
+				# Create empty type of the field, which supports subfields
+				fobj = self.field_value_object(attr[1], None)
+				# Decouple field object from its parent (this IcingaConfigObject)
+				# This way it does handle modification itself rather than propagating it (which whould led to recursion)
+				fobj.parent_descr.decouple()
+				fobj[tuple(attr[2:])] = oldvalue
+
+				# Use the part of fobj that was "changed" for the returned changes, use a string-key
+				change[".".join(attr[1:])] = fobj[attr[2:]]
+
+		return change
 
 	def modify(self, modification):
 		"""Modify this/these objects.
@@ -187,55 +238,62 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		This method checks if modification is allowed, converts the values and sends the modification to Icinga.
 		If Icinga returns a HTTP status_code<400 attribute values are also written to the objects results cache.
 		"""
+		modification = self._modify_prepare(modification)
+		# TODO guarantee that values get converted correctly...
+		# This is only guaranteed to work for NativeValue objects
+		modification = {key: getattr(value, "value", value) for key, value in modification.items()}
 
-		# What is later send as an Icinga request
-		change = {}
-		for oldkey, oldval in modification.items():
-			attr = self.parse_attrs(oldkey)
-			key = ".".join(attr)
-
-			# Check if modification is allowed
-			if attr[0] == "joins":
-				raise NoUserModify("Modification of a joined object is not supported.")
-			elif attr[0] != "attrs":
-				raise NoUserModify("Not allowed to modify attribute {}. Not an attribute.".format(key))
-
-			if self.permissions(attr[1])[1]:
-				raise NoUserModify("No permission to modify attribute {}".format(key))
-
-			# Convert attribute value type
-			type_ = self._field_type(attr[1])
-			change[key] = type_.convert(oldval, parent_descr=ParentObjectDescription(parent=self, field=key))
-
-		ret = self._modify0(change)
-
-		if ret.status_code >= 400:
-			# Something went wrong -> do not modify
-			return ret
-
-		# Modify cached attribute values
-		for res in self.results:
-			for key, value in change.items():
-				key = self.parse_attrs(key)[1]
-				res[key] = value
-
+		ret = self._modify_icinga(modification)
+		try:
+			ret.raise_for_status()
+		except HTTPError:
+			pass  # Not successfull -> do not modify
+		else:
+			# Modify cached attribute values
+			self._modify_internal(modification)
 		return ret
 
-	def _modify0(self, modification):
-		"""Actually apply a modification with correctly converted values."""
+	def _modify_internal(self, modification):
+		"""Modify the internal (cached) attribute values ("attrs" field only)."""
+		for res in self.results:
+			for key, value in modification.items():
+				# The following part is neccesary to support partial changes of e.g. dictionaries
+				temp = res["attrs"]
+				attrs = self.parse_attrs(key)
+				for subkey in attrs[1:-1]:
+					if temp[subkey] is None:
+						# Unfortunately, for Icinga a Dictionary can be Null/None
+						# As to this point Icinga has accepted the change, None must therefore be a dictionary
+						temp[subkey] = dict()
+					temp = temp.setdefault(subkey, dict())
+				temp[attrs[-1]] = value
+
+	def _modify_icinga(self, modification) -> APIResponse:
+		"""Send a modification request to Icinga and return the response."""
 		# Create modification query
 		mquery = self._request.clone()
 		mquery.method_override = "POST"
 		# Copy original JSON body and overwrite attributes for modification
 		data = dict(mquery.json)["attrs"] = {}
 		data["attrs"] = modification
-		# JSON Encoding
-		mquery.data = json.dumps(data, cls=JSONResultEncoder)
-		# Should not be neccessary because requests uses data first, but avoids confusion
-		mquery.json = dict()
+		mquery.json = data
 		# Fire modification query (returns APIResponse object)
 		return mquery()
 
 
 class IcingaConfigObject(SingleObjectMixin, IcingaConfigObjects):
 	"""Representation of an Icinga object."""
+
+	def __setattr__(self, key, value):
+		"""Modify object value(s) if the attribute name is a field of this object type. Otherwise default behavior."""
+		if key and key[0] == '_':
+			# Default behavior for private attributes
+			return super().__setattr__(key, value)
+
+		attrs = self.parse_attrs(key)
+		if len(attrs) > 1 and attrs[1] not in self.FIELDS:
+			# Fallback to default for non-fields
+			return super().__setattr__(key, value)
+
+		# Modify this object
+		self.modify({tuple(attrs): value})
