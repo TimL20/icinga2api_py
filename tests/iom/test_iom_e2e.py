@@ -133,7 +133,7 @@ def test_modify3(session):
 	assert obj.vars.val2 == val2
 
 
-def test_modify_nested(session):
+def test_modify_nested_dicts(session):
 	"""Test modification of nested dictionary."""
 	obj = session.objects.hosts.localhost.get()
 	# Test two different ways, just to check that both succeed
@@ -152,6 +152,20 @@ def test_modify_nested(session):
 	obj = session.objects.hosts.localhost.get()
 	assert obj.vars.nested.one == {"1": 0}
 	assert obj.vars.nested.two == {"2": 3, "0": 0}
+
+
+def test_modify_nested_objects(session):
+	"""Test modification of nested object."""
+	obj = session.objects.hosts.localhost.get()
+	# Negate current value
+	value = not obj.last_check_result.active
+	check_result = obj.last_check_result
+	check_result.active = value
+	assert obj.last_check_result.active == value
+
+	# Query again to make sure it was flushed
+	obj = session.objects.hosts.localhost.get()
+	assert obj.last_check_result.active == value
 
 
 # TODO improve the existing tests and add more
