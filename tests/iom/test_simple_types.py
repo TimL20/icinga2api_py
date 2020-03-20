@@ -6,48 +6,23 @@ Tests for the iom.simple_types module.
 import datetime
 import pytest
 
-from ..icinga_mock import mock_session_handler
-
-from icinga2api_py.iom.base import AbstractIcingaObject, Number, ParentObjectDescription
-from icinga2api_py.iom.simple_types import Timestamp, Array, Dictionary
-from icinga2api_py.iom.session import Session
-
-
-URL = "http://icinga:1234/v1/"
-API_CLIENT_KWARGS = {
-	"verify": False,
-	"auth": ("user", "pass"),
-	"attr1": "value1"
-}
-
-
-@pytest.fixture(scope="module")
-def session() -> Session:
-	"""Icinga Session (client)."""
-	yield from mock_session_handler(Session(URL, **API_CLIENT_KWARGS))
-
-
-@pytest.fixture(scope="function")
-def types(session):
-	"""The Types object to test."""
-	# TODO it would be better to import the things to test; this is not possible right now
-	yield session.types
+from icinga2api_py.iom.base import ParentObjectDescription
+from icinga2api_py.iom.simple_types import Number, String, Boolean, Timestamp, Array, Dictionary
 
 
 DEFAULT_POD = ParentObjectDescription(0)
 
 
-@pytest.mark.parametrize("cls_name, value", (
-		("Number", 1),
-		("String", "abc"),
-		("Boolean", True),
-		("Timestamp", 1),  # Timestamp doesn't work with datetime as init arg
-		("Array", [1, 2, 3]),
-		("Dictionary", {"a": 1, "b": 2}),
+@pytest.mark.parametrize("cls, value", (
+		(Number, 1),
+		(String, "abc"),
+		(Boolean, True),
+		(Timestamp, 1),  # Timestamp doesn't work with datetime as init arg
+		(Array, [1, 2, 3]),
+		(Dictionary, {"a": 1, "b": 2}),
 ))
-def test_basics(types, cls_name, value):
+def test_basics(cls, value):
 	"""Test the basics for every simple_types type."""
-	cls = types.type(cls_name, number=Number.SINGULAR)
 	obj = cls(value, DEFAULT_POD)
 	assert obj.value == value
 	assert obj == value
@@ -83,7 +58,6 @@ def test_array():
 	assert array == [0, 1, 2]
 	assert len(array) == 3
 	assert array[0] == 0
-	# TODO test modification...
 
 
 def test_dictionary():

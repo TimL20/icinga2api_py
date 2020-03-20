@@ -15,7 +15,7 @@ from requests import HTTPError
 from icinga2api_py.models import APIResponse
 from .exceptions import NoUserView, NoUserModify
 from ..results import ResultSet, CachedResultSet, SingleResultMixin
-from .base import Number, AbstractIcingaObject, ParentObjectDescription
+from .base import TypeNumber, AbstractIcingaObject, ParentObjectDescription
 
 # Possible keys of an objects query result
 OBJECT_QUERY_RESULT_KEYS = {"name", "type", "attrs", "joins", "meta"}
@@ -124,12 +124,12 @@ class IcingaConfigObjects(CachedResultSet, IcingaObjects):
 		"""Return an object representation for the object at this index of results."""
 		if isinstance(index, slice):
 			# Return plural type for slice
-			number = Number.PLURAL
+			number = TypeNumber.PLURAL
 		else:
 			# Not a slice -> convert to slice for simplification
 			index = slice(index, index + 1)
 			# Return singular type
-			number = Number.SINGULAR
+			number = TypeNumber.SINGULAR
 
 		# Get results of the objects in this slice
 		# super() does not work in list comprehensions

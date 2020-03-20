@@ -9,7 +9,7 @@ import pytest
 
 from ..icinga_mock import mock_session
 
-from icinga2api_py.iom.base import AbstractIcingaObject, Number
+from icinga2api_py.iom.base import AbstractIcingaObject, TypeNumber
 from icinga2api_py.iom.complex_types import IcingaObject, IcingaObjects, IcingaConfigObject
 from icinga2api_py.iom.simple_types import Array, Dictionary
 import icinga2api_py.iom.types as types_module
@@ -85,7 +85,7 @@ def test_result(types, item, exp_type, ret_1):
 ))
 def test_type_general(types, item, exp_type):
 	"""Test Types.type() in general (number parameter is tested elsewhere)."""
-	cls = types.type(item, number=Number.SINGULAR)
+	cls = types.type(item, number=TypeNumber.SINGULAR)
 	# Check namespace
 	assert hasattr(cls, "__module__")
 	assert isinstance(cls.DESC, Mapping)
@@ -108,6 +108,6 @@ def test_type_general(types, item, exp_type):
 ))
 def test_type_number(types, item, number, expected_type):
 	"""Test Types.type() number parameter."""
-	number = getattr(Number, number.upper())
+	number = getattr(TypeNumber, number.upper())
 	cls = types.type(item, number=number)
 	assert cls is expected_type

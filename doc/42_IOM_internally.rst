@@ -93,10 +93,6 @@ simple_types
 
 -  Classes for describing Python builtin types (Number (int), String
    (str), Array (Sequence), …)
--  Also contains a ``JSONResultEncoder`` that is able to encode
-   ``AbstractIcingaObject`` objects
--  And a ``JSONResultDecodeHelper`` that provides a object_pairs_hook
-   used on decoding JSON
 
 The ``NativeValue`` subclasses emulates behavior of the builtin Python
 types while providing a consistant interface
@@ -131,8 +127,6 @@ their plural counterpart.
 
 The most important class is ``IcingaConfigObjects``, that provides:
 
-- Automatically using the object_pairs_hook of the
-  ``JSONResultDecodeHelper`` (see simple_types section)
 - Returning a single ``IcingaConfigObject`` representing the object at a particular
   index
 - Advanced attr specification parsing (in ``parse_attrs()``), e.g. 

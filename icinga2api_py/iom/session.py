@@ -9,7 +9,7 @@ from ..api import API
 from ..clients import Client
 from ..models import Query
 from ..results import CachedResultSet
-from .base import Number, ParentObjectDescription
+from .base import TypeNumber, ParentObjectDescription
 from . import Types
 
 LOGGER = logging.getLogger(__name__)
@@ -65,9 +65,9 @@ class IOMQuery(Query):
 		otype = url_split[1]
 		if len(url_split) > 2:
 			# Has a name, so it's one object
-			class_ = self.api.types.type(otype, Number.SINGULAR)
+			class_ = self.api.types.type(otype, TypeNumber.SINGULAR)
 		else:
-			class_ = self.api.types.type(otype, Number.PLURAL)
+			class_ = self.api.types.type(otype, TypeNumber.PLURAL)
 		LOGGER.debug("Using class %s for URL %s", class_.__name__, url_split)
 		# Now create the object, parent_descr has the session this object belongs to
 		parent_descr = ParentObjectDescription(session=self.api)

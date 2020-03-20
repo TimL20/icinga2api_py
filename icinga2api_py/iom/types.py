@@ -3,9 +3,9 @@
 
 import threading
 from ..results import CachedResultSet, Result
-from .simple_types import Array, Dictionary, Timestamp, create_native_attribute_value_type
+from .simple_types import Number, String, Boolean, Value, Array, Dictionary, Timestamp
 from .complex_types import IcingaObject, IcingaObjects, IcingaConfigObject, IcingaConfigObjects
-from .base import Number, AbstractIcingaObject
+from .base import TypeNumber, AbstractIcingaObject
 
 
 class Types(CachedResultSet):
@@ -21,13 +21,13 @@ class Types(CachedResultSet):
 		"configobjects": IcingaConfigObjects,
 
 		# Mapping of simple types defined in the simple_types module
-		"number": create_native_attribute_value_type("Number", float),
-		"string": create_native_attribute_value_type("String", str),
-		"boolean": create_native_attribute_value_type("Boolean", bool),
+		"number": Number,
+		"string": String,
+		"boolean": Boolean,
 		"timestamp": Timestamp,
 		"array": Array,
 		"dictionary": Dictionary,
-		"value": create_native_attribute_value_type("Value"),  # ???????????????????? # TODO check // or issue?
+		"value": Value,
 		# Duration does not appear over API(?)
 	}
 
@@ -65,7 +65,7 @@ class Types(CachedResultSet):
 		# Not found
 		raise KeyError("Found no such type: {}".format(item))
 
-	def type(self, item, number=Number.IRRELEVANT):
+	def type(self, item, number=TypeNumber.IRRELEVANT):
 		"""Get an Icinga object type by its name.
 
 		Both singular and plural names are accepted.
@@ -73,12 +73,12 @@ class Types(CachedResultSet):
 		the plural type.
 		"""
 		# Handle singular/plural first, to avoid problems related to that in general
-		if number == Number.SINGULAR:
+		if number == TypeNumber.SINGULAR:
 			item = item[:-1] if item[-1] == 's' else item
-		elif number == Number.PLURAL:
+		elif number == TypeNumber.PLURAL:
 			item = item + 's' if item[-1] != 's' else item
 		else:
-			number = Number.PLURAL if item[-1] == 's' else Number.PLURAL
+			number = TypeNumber.PLURAL if item[-1] == 's' else TypeNumber.PLURAL
 
 		if item.lower() in self.ICINGA_PYTHON_TYPES:
 			# Types mapped directly for advanced functionality
@@ -108,7 +108,7 @@ class Types(CachedResultSet):
 				parent = AbstractIcingaObject
 
 			# Classname for created class is the type name
-			classname = type_desc["name"] if number == Number.SINGULAR else type_desc["plural_name"]
+			classname = type_desc["name"] if number == TypeNumber.SINGULAR else type_desc["plural_name"]
 			# Merge fields of parent class into own fields
 			fields.update(parent.FIELDS)
 			# Namespace for dynamically created class

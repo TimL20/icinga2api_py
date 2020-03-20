@@ -1,18 +1,18 @@
 # -*- coding: utf-8 -*-
 """
 This module defines simple mapped object types, especially object types natively included in Python.
-
-There is also a JSON Encoder in this module, that is able to encode all AttributeValue objects.
-Below the encoder is a JSON decoder helper, that provides a object_pairs_hook method for decoding.
 """
 
 import datetime
 from collections.abc import Sequence, Mapping, MutableMapping
 
 
-from .base import Number, ParentObjectDescription, AbstractIcingaObject
+from .base import ParentObjectDescription, AbstractIcingaObject
 from .exceptions import NoUserModify
 from ..results import ResultSet
+
+
+__all__ = ["Number", "String", "Boolean", "Value", "Timestamp", "Duration", "Array", "Dictionary"]
 
 
 class NativeValue(AbstractIcingaObject):
@@ -53,7 +53,23 @@ def create_native_attribute_value_type(name, converter=None):
 		return type(name, (NativeValue, ), {"__module__": NativeValue.__module__})
 
 
-# TODO add simple native types to make them importable
+#: Type for any Number, wraps a Python ´float´
+Number = create_native_attribute_value_type("Number", float)
+#: Type for any String, wraps a Python ´str´
+String = create_native_attribute_value_type("String", str)
+#: Type for any Boolean, wraps a Python ´bool´
+Boolean = create_native_attribute_value_type("Boolean", bool)
+
+# This is actually something a bit odd, and reading the Icinga2 documentation doesn't help much here
+# It's not mentioned in "Monitoring Basics" -> "Attribute Value types"
+# Nor in "Advanced Topics" -> "Advanced Value Types"
+# And also not in "Object Types" or "Api"
+# But it appears in the query result of API /types endpoint, in:
+# Checkable -> check_timeout, Command -> {arguments, command}, PerfdataValue -> {min, max, warn},
+# ScheduledDowntime -> child_options, TimePeriod -> {valid_begin, valid_end}
+# Not sure how to handle this -> just leave it like it is  # TODO question or issue for Icinga ???
+#: For now this is just a "leave it untouched" type
+Value = create_native_attribute_value_type("Value")
 
 
 class Timestamp(NativeValue):

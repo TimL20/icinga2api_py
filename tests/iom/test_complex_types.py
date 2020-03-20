@@ -5,7 +5,7 @@ Tests for the iom.simple_types module.
 
 import pytest
 
-from icinga2api_py.iom.base import AbstractIcingaObject, Number, ParentObjectDescription
+from icinga2api_py.iom.base import AbstractIcingaObject, TypeNumber, ParentObjectDescription
 from icinga2api_py.iom.complex_types import IcingaObjects, IcingaObject, IcingaConfigObject
 from icinga2api_py.iom.complex_types import IcingaConfigObjects as RealIcingaConfigObjects
 from icinga2api_py.models import APIRequest

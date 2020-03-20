@@ -4,7 +4,7 @@
 import enum
 
 
-class Number(enum.Enum):
+class TypeNumber(enum.Enum):
 	"""Whether a type should be in singular or plural form, or not specified (irrelevant)."""
 
 	#: Single object
@@ -85,7 +85,7 @@ class AbstractIcingaObject:
 		"""
 		typename = self.FIELDS[attr]["type"]
 		# Field types are always singular
-		return self.session.types.type(typename, number=Number.SINGULAR)
+		return self.session.types.type(typename, number=TypeNumber.SINGULAR)
 
 	def permissions(self, field):
 		"""Get permission for a given attribute (field), returned as a tuple for the boolean values of:
