@@ -223,6 +223,20 @@ def test_request(mocked_api_client):
 	assert request == request2
 
 
+def test_request_warnings():
+	"""Test that models.APIRequest emits warnings for data/files set."""
+	req = APIRequest(None)
+	with pytest.warns(Warning) as record:
+		req.data = 1  # This should trigger a warning
+		req.data = None  # This should not trigger a warning
+	assert len(record) == 1
+
+	with pytest.warns(Warning):
+		req.files = 1
+		req.files = None
+	assert len(record) == 1
+
+
 def test_request_clone(mocked_api_client):
 	"""Test models.APIRequest.clone() method."""
 	method = "GET"

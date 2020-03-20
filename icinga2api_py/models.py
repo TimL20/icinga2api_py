@@ -7,7 +7,10 @@ requests and responses to/from the Icinga2 API.
 
 import logging
 import collections.abc
+import warnings
+
 from requests import Request, Response
+
 from . import exceptions
 
 LOGGER = logging.getLogger(__name__)
@@ -25,25 +28,69 @@ class APIRequest(Request):
 		response of course).
 	"""
 
-	#: All attributes any object of this class has
-	attrs = ("method", "url", "headers", "files", "data", "params", "auth", "cookies", "hooks", "json")
+	#: All request attributes any object of this class has
+	attrs = ("method", "url", "headers", "params", "auth", "cookies", "hooks", "json")
 
-	def __init__(self, api, *args, **kwargs):
+	def __init__(self, api, method=None, url=None, json=None, headers=None, auth=None, cookies=None, hooks=None):
 		"""Initiation requires an API client instance, the other init parameters are passed on to ``requests.Request``.
 
 		:param api: API object, used to prepare the request (using the requests Session feature)
-		:param *args: Get passed to the super constructor
-		:param **kwargs: Get passed to the super constructor
+		:param method: Request method to override with
+		:param url: Full request URL
+		:param json: Body to JSON-encode
+		:param headers: Request headers
+		:param auth: auth handler or (user, pass) tuple
+		:param cookies: dictionary or CookieJar to attach to the request
+		:param hooks: dictionary of callback hooks
 		"""
-		super().__init__(*args, **kwargs)
+
+		super().__init__(
+			# Statically set method to post, adding method_override below
+			method="POST",
+			url=url,
+			# Pass the json body, it's used as long as files and data are empty
+			json=json,
+			# Just pass on the rest
+			headers=headers,
+			auth=auth,
+			cookies=cookies,
+			hooks=hooks
+		)
 
 		#: The API client is supposed to be a api.API instance, which inherits from requests.Session
 		self.api = api
 
 		# To keep it simple everything is handled with method-override, and the standard method is post
-		if self.method is not None:
-			self.method_override = self.method
-		self.method = "POST"
+		if method is not None:
+			self.method_override = method
+
+	@property
+	def data(self):
+		"""Always return empty data to avoid weird behavior."""
+		return []
+
+	@data.setter
+	def data(self, data):
+		"""Do nothing because only a json body is used for an APIRequest.
+
+		It still is implemented to be compatible with the :class:`requests.Request` parent class.
+		"""
+		if data:
+			warnings.warn(f"{self.__class__.__name__} object ignores when 'data' is set", Warning)
+
+	@property
+	def files(self):
+		"""Always return no files to avoid weird behavior."""
+		return []
+
+	@files.setter
+	def files(self, files):
+		"""Do nothing because only a json body is used for an APIRequest.
+
+		It still is implemented to be compatible with the :class:`requests.Request` parent class.
+		"""
+		if files:
+			warnings.warn(f"{self.__class__.__name__} object ignores when 'files' is set", Warning)
 
 	@property
 	def method_override(self):
