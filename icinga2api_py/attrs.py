@@ -35,15 +35,19 @@ class Attribute:
 	#: Attributes considered for cloning and comparison
 	_object_attributes = ("_primary_key", "join_type", "attrs", "object_type")
 
+	class Format(enum.Enum):
+		"""Attribute representation format."""
+
+		#: Format as used for the results
+		RESULTS = enum.auto()
+		#: The format Icinga uses for e.g. filters
+		ICINGA = enum.auto()
+
 	def __init__(self,
 				descr: Union[str, Sequence[str]],
 				aware: bool = False,
 				object_type: Optional[str] = None
 			):
-
-		# TODO attrs restrictions
-		# TODO joins restrictions
-
 		# Make sure the description is a list
 		try:
 			descr = descr.split('.')
@@ -129,24 +133,46 @@ class Attribute:
 				pass
 		self._object_type = type_
 
+	@property
+	def attrs(self):
+		"""Attributes as list."""
+		return self._attrs
+
 	# TODO implement appending attr with / or getattr
+
+	def full_attrs(self, form: Format = Format.RESULTS):
+		"""Iterate over the full attribute description parts."""
+		if form == self.Format.ICINGA:
+			type_ = self.join_type or self.object_type
+			if type_:
+				yield type_
+			yield from self.attrs
+		else:
+			if self._primary_key != _PrimaryAttribute.NONE:
+				yield self._primary_key.value
+			if self.join_type is not None:
+				yield self.join_type
+			yield from self.attrs
+
+	def description(self, form: Format = Format.ICINGA):
+		"""Return the attribute description (= string representation) in the given format."""
+		return ".".join(self.full_attrs(form))
 
 	def __iter__(self):
 		"""Iterate over the parts of the attribute description."""
-		first = self._primary_key
-		if first.value is not None:
-			yield first.value
-		if first == _PrimaryAttribute.JOINS:
-			yield self._join_type
-		yield from iter(self._attrs)
-
-	# TODO implement getting string in Icinga format
+		yield from self.full_attrs(self.Format.RESULTS)
 
 	def __str__(self):
 		"""Return the string representation of this attribute description."""
-		return ".".join(self)
+		return self.description(self.Format.RESULTS)
 
-	# TODO implement __repr__
+	def __repr__(self):
+		"""Full string representation."""
+		ret = [self.__class__.__name__]
+		if self.object_type_aware:
+			ret.append(f"[{self.object_type}]")
+		ret.append(self.description(self.Format.RESULTS))
+		return f"<{' '.join(ret)}>"
 
 	def __eq__(self, other):
 		"""Compare to other attribute description, or return a filter object."""
@@ -155,6 +181,9 @@ class Attribute:
 		except AttributeError:
 			...  # TODO return filter object
 
+
+# TODO attrs restrictions
+# TODO joins restrictions
 
 # TODO add class representing a (mutable) attribute list
 
