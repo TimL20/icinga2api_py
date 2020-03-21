@@ -116,3 +116,9 @@ def test_attribute_objecttype(tdata_set):
 	obj.object_type = "a"
 	assert obj.object_type == "a"
 	assert str(obj) == tdata_set.get("taot", tdata_set["string"])
+
+
+@pytest.mark.parametrize("init_args", [d["init_args"] for d in TEST_DATA], ids=IDS)
+def test_attribute_eq(init_args):
+	"""Test Attribute.__eq__()."""
+	assert Attribute(*init_args) == Attribute(*init_args)

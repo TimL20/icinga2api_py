@@ -32,6 +32,9 @@ class Attribute:
 	# TODO describe attrs and joins handling
 	"""
 
+	#: Attributes considered for cloning and comparison
+	_object_attributes = ("_primary_key", "join_type", "attrs", "object_type")
+
 	def __init__(self,
 				descr: Union[str, Sequence[str]],
 				aware: bool = False,
@@ -59,7 +62,7 @@ class Attribute:
 		#: Join type or None
 		self._join_type = None
 		#: List of (sub) attributes, possibly empty
-		self.attrs = descr
+		self._attrs = descr
 		#: For which type of an object the attribute description was created, or None if not aware of an object type.
 		#: An empty string or any special attribute keys are not valid object types.
 		self._object_type = object_type.lower() if object_type and object_type not in SPECIAL_ATTRIBUTE_KEYS else None
@@ -71,7 +74,7 @@ class Attribute:
 			self._primary_key = _PrimaryAttribute.JOINS
 			try:
 				self._join_type = descr.pop(0).lower()
-				self.attrs = descr
+				self._attrs = descr
 			except IndexError:
 				pass  # descr was "joins", which is OK
 		elif object_type and first == object_type:
@@ -82,7 +85,7 @@ class Attribute:
 			self._primary_key = _PrimaryAttribute.ATTRS
 			self._object_type = first
 		else:
-			self.attrs = [first, *descr]
+			self._attrs = [first, *descr]
 
 	@property
 	def object_type_aware(self):
@@ -120,11 +123,13 @@ class Attribute:
 			raise ValueError(f"Illegal object type: {type_}")
 		if self._primary_key == _PrimaryAttribute.NONE:
 			try:
-				if self.attrs[0] == type_:
-					self.attrs.pop(0)
+				if self._attrs[0] == type_:
+					self._attrs.pop(0)
 			except IndexError:
 				pass
 		self._object_type = type_
+
+	# TODO implement appending attr with / or getattr
 
 	def __iter__(self):
 		"""Iterate over the parts of the attribute description."""
@@ -133,15 +138,24 @@ class Attribute:
 			yield first.value
 		if first == _PrimaryAttribute.JOINS:
 			yield self._join_type
-		yield from iter(self.attrs)
+		yield from iter(self._attrs)
 
-	def __eq__(self, other):
-		"""Compare to other attribute description, or return a filter object."""
-		# TODO implement
+	# TODO implement getting string in Icinga format
 
 	def __str__(self):
 		"""Return the string representation of this attribute description."""
 		return ".".join(self)
 
+	# TODO implement __repr__
+
+	def __eq__(self, other):
+		"""Compare to other attribute description, or return a filter object."""
+		try:
+			return all((getattr(self, attr) == getattr(other, attr) for attr in self.__class__._object_attributes))
+		except AttributeError:
+			...  # TODO return filter object
 
 
+# TODO add class representing a (mutable) attribute list
+
+# TODO add a class representing a filter
