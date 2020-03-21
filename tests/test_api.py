@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Test for layer 1 (request centered layer) of the icinga2api_py library.
+Test for most of layer 1 (request centered layer) of the icinga2api_py library.
 """
 
 from collections.abc import Sequence, Mapping
