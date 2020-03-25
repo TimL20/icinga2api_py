@@ -7,7 +7,9 @@
 import collections.abc
 import enum
 import logging
-from typing import Union, Optional, Sequence
+from typing import Union, Optional, Sequence, Iterable
+
+from .exceptions import AttributeParsingError
 
 LOGGER = logging.getLogger(__name__)
 
@@ -73,7 +75,8 @@ class Attribute:
 		#: The format Icinga uses for e.g. filters
 		ICINGA = enum.auto()
 
-	def __init__(self,
+	def __init__(
+				self,
 				descr: Union[str, Sequence[str]],
 				aware: bool = False,
 				object_type: Optional[str] = None
@@ -88,7 +91,7 @@ class Attribute:
 		try:
 			first = descr.pop(0).lower()
 		except IndexError:
-			raise ValueError("Invalid attribute description: too short")
+			raise AttributeParsingError("Invalid attribute description: too short")
 
 		# Defaults
 		#: Primary key: internally kept _PrimaryAttribute
@@ -111,7 +114,7 @@ class Attribute:
 				self._join_type = descr.pop(0).lower()
 				self._attrs = descr
 			except IndexError:
-				pass  # descr was "joins", which is OK
+				raise AttributeParsingError("Invalid attribute description: join but no joined type")
 		elif object_type and first == object_type:
 			# The first item is the object type
 			self._primary_key = _PrimaryAttribute.ATTRS
@@ -123,24 +126,19 @@ class Attribute:
 			self._attrs = [first, *descr]
 
 	@classmethod
-	def _plain_init(cls, primary_key: _PrimaryAttribute, join_type: str, attrs: Sequence[str], object_type: str):
+	def _plain_init(
+				cls, primary_key: _PrimaryAttribute, join_type: Optional[str], attrs: Sequence[str],
+				object_type: Optional[str]
+			):
 		"""Init with the private attributes of such an object."""
 		# Build descr list
 		builder = list()
 		if primary_key != _PrimaryAttribute.NONE:
 			builder.append(primary_key.value)
-		if primary_key == _PrimaryAttribute.JOINS:
+		if primary_key == _PrimaryAttribute.JOINS and join_type:
 			builder.append(join_type)
 		builder.extend(attrs)
 		return cls(builder, object_type=object_type)
-
-	@classmethod
-	def enforce_attribute_type(cls, obj):
-		"""Convert obj to an Attribute, or just return it if it already is one."""
-		if isinstance(obj, cls):
-			return obj
-		object_type = getattr(obj, "object_type")
-		return cls(obj, object_type=object_type)
 
 	@property
 	def object_type_aware(self):
@@ -169,11 +167,28 @@ class Attribute:
 		"""Return the object type this attribute is for - if it's aware of it's object type, None otherwise."""
 		return self._object_type
 
-	def amend_object_type(self, object_type: str):
-		"""Set the object type this attribute is for."""
-		# Ensure not empty or None
-		if not object_type:
-			raise ValueError(f"Illegal object type: {object_type}")
+	def amend_object_type(self, object_type: str, as_jointype=False, override_jointype=False):
+		"""Set the object type for which this describes an attribute.
+
+		By default the old object type is just overriden with the new one. But if as_jointype is True, the old object
+		type is set as the join_type of the returned attribute. The additional parameter override_jointype does this
+		also if there already is an join_type for this attribute.
+
+		:param object_type: New object type to set
+		:param as_jointype: Use old object type as new join type (if there an object type and no join type)
+		:param override_jointype: Use old object type as new join type even if there already is a join type
+		:return: New Attribute object with the new object type (and maybe also new jointype)
+		"""
+		if all((
+			as_jointype,
+			self.object_type,
+			object_type != self.object_type,
+			override_jointype or not self.join_type
+		)):
+			# If as_jointype and there is an old object_type (and it is not the same as the new one) and either there is
+			# no old join_type or the join_type should be overriden:
+			# Set old object_type as new join_type
+			return self._plain_init(_PrimaryAttribute.JOINS, self.object_type, self.attrs, object_type)
 
 		attrs = self.attrs
 		try:
@@ -181,6 +196,9 @@ class Attribute:
 			attrs = attrs[1:] if attrs[0] == object_type else attrs
 		except IndexError:
 			pass
+		if self.join_type == object_type:
+			# Join type is new object type -> joins.<type> to attrs
+			return self._plain_init(_PrimaryAttribute.ATTRS, None, attrs, object_type)
 		return self._plain_init(self._primary_key, self.join_type, attrs, object_type)
 
 	@property
@@ -236,7 +254,51 @@ class Attribute:
 class AttributeSet(collections.abc.MutableSet):
 	"""Represents a mutable list of attributes."""
 
-	# TODO Implement a MutableSet here, that contains only Attribute objects
+	def __init__(self, object_type, initial: Iterable = None):
+		self._object_type = object_type
+		initial = (self._enforce_type(attr) for attr in (initial or tuple()))
+		self._attrs = set(initial)
+
+	@property
+	def object_type(self):
+		return self._object_type
+
+	@object_type.setter
+	def object_type(self, object_type):
+		"""Set a new object type."""
+		self._object_type = object_type
+		# Enforce new object type for
+		initial = (self._enforce_type(attr) for attr in self._attrs)
+		self._attrs = set(initial)
+
+	def _enforce_type(self, attr):
+		"""Enforce the correct attribute type for attr."""
+		if not isinstance(attr, Attribute):
+			attr = Attribute(attr, aware=("." in attr))
+		if attr.object_type != self._object_type:
+			# Set new object type, set old object type as join type if join type was not set
+			return attr.amend_object_type(self._object_type, as_jointype=True, override_jointype=False)
+		return attr
+
+	def add(self, attr):
+		"""Add an attribute to this set of attributes."""
+		self._attrs.add(self._enforce_type(attr))
+
+	def discard(self, attr) -> None:
+		"""Discard an attr of this set of attributes (does nothing if the attr is not in this set)."""
+		self._attrs.discard(self._enforce_type(attr))
+
+	def __contains__(self, attr):
+		"""Returns True if the given attr is contained in this set of attributes."""
+		return self._enforce_type(attr) in self._attrs
+
+	def __len__(self):
+		"""Returns the number of attributes this set has."""
+		return len(self._attrs)
+
+	def __iter__(self):
+		"""Iterate over the Attribute objects of this set."""
+		return iter(self._attrs)
 
 	# TODO implement checking attrs restrictions
 
