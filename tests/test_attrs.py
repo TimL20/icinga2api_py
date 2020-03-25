@@ -121,19 +121,21 @@ def test_attribute_basics(tdata_set):
 	assert str(obj) == tdata_set["string"]
 	assert obj.description(Attribute.Format.ICINGA) == tdata_set["icinga"]
 
+	# Test that these don't fail
+	assert bool(repr(obj))
+	assert bool(hash(obj))
+
 
 def test_attribute_jointype(tdata_set):
 	"""Test Attribute.join_type property."""
-	obj = tdata_set["obj"]
-	obj.join_type = "jointype"
+	obj = tdata_set["obj"].amend_join_type("jointype")
 	assert obj.join_type == "jointype"
 	assert str(obj) == tdata_set["joined"]
 
 
 def test_attribute_objecttype(tdata_set):
 	"""Test Attribute.object_type property."""
-	obj = tdata_set["obj"]
-	obj.object_type = "a"
+	obj = tdata_set["obj"].amend_object_type("a")
 	assert obj.object_type == "a"
 	assert str(obj) == tdata_set.get("taot", tdata_set["string"])
 
