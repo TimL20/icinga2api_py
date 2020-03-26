@@ -7,7 +7,7 @@
 import collections.abc
 import enum
 import logging
-from typing import Union, Optional, Sequence, Iterable
+from typing import Union, Optional, Sequence, Iterable, Generator, Iterator
 
 from .exceptions import AttributeParsingError
 
@@ -129,7 +129,7 @@ class Attribute:
 	def _plain_init(
 				cls, primary_key: _PrimaryAttribute, join_type: Optional[str], attrs: Sequence[str],
 				object_type: Optional[str]
-			):
+			) -> "Attribute":
 		"""Init with the private attributes of such an object."""
 		# Build descr list
 		builder = list()
@@ -141,18 +141,18 @@ class Attribute:
 		return cls(builder, object_type=object_type)
 
 	@property
-	def object_type_aware(self):
+	def object_type_aware(self) -> bool:
 		"""Whether or not this Attribute description is aware of for which object it was written."""
 		return self._object_type is not None
 
 	@property
-	def join_type(self):
+	def join_type(self) -> Optional[str]:
 		"""Get join type if this attribute describes a joined type or something in a joined type, else None."""
 		if self._primary_key == _PrimaryAttribute.JOINS:
 			return self._join_type
 		return None
 
-	def amend_join_type(self, join_type: str):
+	def amend_join_type(self, join_type: str) -> "Attribute":
 		"""Return a new object, similar to this one but with the given joined object for which this attribute describes
 		something."""
 		join_type = join_type.lower()
@@ -163,11 +163,11 @@ class Attribute:
 		return self._plain_init(_PrimaryAttribute.JOINS, join_type, self.attrs, self.object_type)
 
 	@property
-	def object_type(self):
+	def object_type(self) -> Optional[str]:
 		"""Return the object type this attribute is for - if it's aware of it's object type, None otherwise."""
 		return self._object_type
 
-	def amend_object_type(self, object_type: str, as_jointype=False, override_jointype=False):
+	def amend_object_type(self, object_type: str, as_jointype=False, override_jointype=False) -> "Attribute":
 		"""Set the object type for which this describes an attribute.
 
 		By default the old object type is just overriden with the new one. But if as_jointype is True, the old object
@@ -202,11 +202,17 @@ class Attribute:
 		return self._plain_init(self._primary_key, self.join_type, attrs, object_type)
 
 	@property
-	def attrs(self):
-		"""Attributes as list."""
+	def attrs(self) -> Sequence[str]:
+		"""Attributes as a sequence."""
 		return tuple(self._attrs)
 
-	def full_attrs(self, form: Format = Format.RESULTS):
+	def parent_attribute(self) -> Optional["Attribute"]:
+		"""Return a parent attribute if there is one."""
+		if self.attrs:
+			return self._plain_init(self._primary_key, self.join_type, self.attrs[:-1], self.object_type)
+		return None
+
+	def full_attrs(self, form: Format = Format.RESULTS) -> Generator[str, None, None]:
 		"""Iterate over the full attribute description parts."""
 		if form == self.Format.ICINGA:
 			type_ = self.join_type or self.object_type
@@ -220,11 +226,11 @@ class Attribute:
 				yield self.join_type
 			yield from self.attrs
 
-	def description(self, form: Format = Format.ICINGA):
+	def description(self, form: Format = Format.ICINGA) -> str:
 		"""Return the attribute description (= string representation) in the given format."""
 		return ".".join(self.full_attrs(form))
 
-	def __iter__(self):
+	def __iter__(self) -> Iterator[str]:
 		"""Iterate over the parts of the attribute description."""
 		yield from self.full_attrs(self.Format.RESULTS)
 
@@ -243,7 +249,7 @@ class Attribute:
 	def __hash__(self):
 		return hash(repr(self))
 
-	def __eq__(self, other):
+	def __eq__(self, other) -> Union[bool, "Filter"]:
 		"""Compare to other attribute description, or return a filter object."""
 		try:
 			return all((getattr(self, attr) == getattr(other, attr) for attr in self.__class__._object_attributes))
@@ -254,24 +260,27 @@ class Attribute:
 class AttributeSet(collections.abc.MutableSet):
 	"""Represents a mutable list of attributes."""
 
-	def __init__(self, object_type, initial: Iterable = None):
+	def __init__(self, object_type: Optional[str], initial: Iterable = None):
+		#: The object type this list has attributes for
 		self._object_type = object_type
 		initial = (self._enforce_type(attr) for attr in (initial or tuple()))
+		#: The internal set of Attribute objects
 		self._attrs = set(initial)
 
 	@property
-	def object_type(self):
+	def object_type(self) -> Optional[str]:
+		"""The object type this list has attributes for."""
 		return self._object_type
 
 	@object_type.setter
-	def object_type(self, object_type):
+	def object_type(self, object_type: Optional[str]):
 		"""Set a new object type."""
 		self._object_type = object_type
 		# Enforce new object type for
 		initial = (self._enforce_type(attr) for attr in self._attrs)
 		self._attrs = set(initial)
 
-	def _enforce_type(self, attr):
+	def _enforce_type(self, attr) -> Attribute:
 		"""Enforce the correct attribute type for attr."""
 		if not isinstance(attr, Attribute):
 			attr = Attribute(attr, aware=("." in attr))
@@ -288,21 +297,22 @@ class AttributeSet(collections.abc.MutableSet):
 		"""Discard an attr of this set of attributes (does nothing if the attr is not in this set)."""
 		self._attrs.discard(self._enforce_type(attr))
 
-	def __contains__(self, attr):
+	def __contains__(self, attr) -> bool:
 		"""Returns True if the given attr is contained in this set of attributes."""
-		return self._enforce_type(attr) in self._attrs
+		if attr is None:
+			# The main use case is to break the recursion
+			return False
+		attr = self._enforce_type(attr)
+		# Check whether this attribute object is in the set, check recursively for parent attributes
+		return attr in self._attrs or (attr.parent_attribute() in self)
 
 	def __len__(self):
 		"""Returns the number of attributes this set has."""
 		return len(self._attrs)
 
-	def __iter__(self):
+	def __iter__(self) -> Iterator[Attribute]:
 		"""Iterate over the Attribute objects of this set."""
 		return iter(self._attrs)
-
-	# TODO implement checking attrs restrictions
-
-	# TODO implement checking joins restrictions
 
 
 class Filter:

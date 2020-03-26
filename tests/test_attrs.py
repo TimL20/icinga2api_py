@@ -119,47 +119,47 @@ IDS = [f"{i}:{d['string']}" for i, d in enumerate(TEST_DATA)]
 
 
 @pytest.fixture(scope="function", params=[data_set for data_set in TEST_DATA], ids=IDS)
-def tdata_set(request):
+def tdata_attr(request):
 	data_set = request.param
 	data_set["obj"] = Attribute(*data_set["init_args"])
 	return data_set
 
 
-def test_attribute_basics(tdata_set):
+def test_attribute_basics(tdata_attr):
 	"""Test Attribute.{object_aware,__str__}."""
-	obj = tdata_set["obj"]
-	assert obj.object_type_aware == tdata_set["awareness"]
-	assert str(obj) == tdata_set["string"]
-	assert obj.description(Attribute.Format.ICINGA) == tdata_set["icinga"]
+	obj = tdata_attr["obj"]
+	assert obj.object_type_aware == tdata_attr["awareness"]
+	assert str(obj) == tdata_attr["string"]
+	assert obj.description(Attribute.Format.ICINGA) == tdata_attr["icinga"]
 
 	# Test that these don't fail
 	assert bool(repr(obj))
 	assert bool(hash(obj))
 
 
-def test_attribute_jointype(tdata_set):
+def test_attribute_jointype(tdata_attr):
 	"""Test Attribute.amend_join_type()."""
-	obj = tdata_set["obj"].amend_join_type("jointype")
+	obj = tdata_attr["obj"].amend_join_type("jointype")
 	assert obj.join_type == "jointype"
-	assert str(obj) == tdata_set["joined"]
+	assert str(obj) == tdata_attr["joined"]
 
 
-def test_attribute_object_joined(tdata_set):
+def test_attribute_object_joined(tdata_attr):
 	"""Test Attribute.amend_object_type() with as_jointype=True."""
-	obj = tdata_set["obj"]
-	object_joined = tdata_set.get("object_joined", tdata_set["string"])
-	object_joined_overriden = tdata_set.get("object_joined_overriden", object_joined)
+	obj = tdata_attr["obj"]
+	object_joined = tdata_attr.get("object_joined", tdata_attr["string"])
+	object_joined_overriden = tdata_attr.get("object_joined_overriden", object_joined)
 	joined = obj.amend_object_type("objecttype", as_jointype=True)
 	assert str(joined) == object_joined
 	joined = obj.amend_object_type("objecttype", as_jointype=True, override_jointype=True)
 	assert str(joined) == object_joined_overriden
 
 
-def test_attribute_objecttype(tdata_set):
+def test_attribute_objecttype(tdata_attr):
 	"""Test Attribute.amend_object_type()."""
-	obj = tdata_set["obj"].amend_object_type("a")
+	obj = tdata_attr["obj"].amend_object_type("a")
 	assert obj.object_type == "a"
-	assert str(obj) == tdata_set.get("taot", tdata_set["string"])
+	assert str(obj) == tdata_attr.get("taot", tdata_attr["string"])
 
 
 @pytest.mark.parametrize("init_args", [d["init_args"] for d in TEST_DATA], ids=IDS)
@@ -181,12 +181,19 @@ SET_DATA = (
 		),
 		"res": {"attrs.b", "joins.b.c"},
 		"type_b": {"joins.a.b", "attrs.c"},
+		"contains": ("a.b.c", "b.c.d"),
 	},
 	{
 		"object_type": "a",
 		"attrs": ("attrs", "joins.b"),
 		"res": {"attrs", "joins.b"},
 		"type_b": {"joins.a", "attrs"},
+		"contains": (
+			"a.b.c",  # Because of attrs of object a
+			"b.c.d",  # Because of joins.b
+			Attribute("attrs", object_type="a"),  # attrs of object a
+			Attribute("attrs", object_type="b"),  # attrs of object b = joins.b of object a
+		)
 	},
 )
 
@@ -207,3 +214,16 @@ def test_attributeset_objecttype(tdata_set):
 	tdata_set["set"].object_type = "b"
 	assert tdata_set["set"].object_type == "b"
 	assert set(str(attr) for attr in tdata_set["set"]) == tdata_set["type_b"]
+
+
+def test_attributeset_contain(tdata_set):
+	"""Test AttributeSet.__contains__()."""
+	obj = tdata_set["set"]
+
+	# Set must contain every attr of the representation
+	for attr in tdata_set["res"]:
+		# Set must contain every attr of the representation
+		assert attr in obj
+
+	for attr in tdata_set["contains"]:
+		assert attr in obj
