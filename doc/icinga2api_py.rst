@@ -13,6 +13,25 @@ icinga2api\_py.api module
    :undoc-members:
    :show-inheritance:
 
+icinga2api\_py.attrs module
+---------------------------
+
+.. automodule:: icinga2api_py.attrs
+   :exclude-members: ComparisonOperator
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   
+   .. autoclass:: ComparisonOperator
+      :members:
+      :show-inheritance:
+      :undoc-members:
+   
+   .. autoclass:: LogicalOperator
+      :members:
+      :show-inheritance:
+      :undoc-members:
+
 icinga2api\_py.clients module
 -----------------------------
 

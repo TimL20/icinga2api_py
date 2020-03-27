@@ -5,7 +5,7 @@ Test for the attrs module.
 
 import pytest
 
-from icinga2api_py.attrs import Attribute, AttributeSet
+from icinga2api_py.attrs import Attribute, AttributeSet, Operator
 
 
 # Test data with the following key-value pairs (except the init_args they are all only checked properties):
@@ -227,3 +227,42 @@ def test_attributeset_contain(tdata_set):
 
 	for attr in tdata_set["contains"]:
 		assert attr in obj
+
+
+def test_operator_basics():
+	"""Test Operator basics."""
+	def func(*args):
+		return args
+
+	o = Operator("a", func)
+	assert o.symbol == "a"
+	assert str(o) == "a"
+	assert o.func is func
+
+	# Registration
+	assert o.register() is True
+	assert Operator.from_string("a") is o
+	assert o.register() is True
+	# Register returns False if not registered...
+	assert Operator("a", None).register() is False
+	assert o.register(True)
+
+	assert o.operate(0, 1, 2) == (0, 1, 2)
+
+	assert o == Operator("a", func)
+	assert o != 1
+
+
+@pytest.mark.parametrize("string, args, res", (
+		("<", (0, 1), True), ("<", (1, 0), False),
+		("<=", (0, 1), True), ("<=", (1, 0), False),
+		("==", (0, 0), True), ("==", (1, 0), False),
+		("!=", (0, 1), True), ("!=", (1, 1), False),
+		(">=", (1, 0), True), (">=", (0, 1), False),
+		(">", (1, 0), True), (">", (0, 1), False),
+		("and", (1, 1, 1), True), ("and", (1, 0, 1), False),
+		("or", (1, 0, 0), True), ("or", (0, 0, 0), False),
+))
+def test_operators_concrete(string, args, res):
+	"""Test concrete operators."""
+	assert Operator.from_string(string).operate(*args) == res

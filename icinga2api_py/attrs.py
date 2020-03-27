@@ -7,11 +7,14 @@
 import collections.abc
 import enum
 import logging
-from typing import Union, Optional, Sequence, Iterable, Generator, Iterator
+from typing import Union, Optional, Sequence, Iterable, Generator, Iterator, Callable
+import operator
 
 from .exceptions import AttributeParsingError
 
 LOGGER = logging.getLogger(__name__)
+
+__all__ = ["Attribute", "AttributeSet", "Operator", "Filter"]
 
 # TODO clarify naming of "Primary key" / "primary attribute" (and others)
 
@@ -315,9 +318,103 @@ class AttributeSet(collections.abc.MutableSet):
 		return iter(self._attrs)
 
 
+class Operator:
+	"""Operator used in filters."""
+
+	#: Translate operator string -> Operator object
+	_OPERATOR_TRANSLATION = dict()
+
+	def __init__(self, symbol: str, func: Callable):
+		#: Symbol (string) for this operator
+		self.symbol = symbol
+		#: Function that executes the operation
+		self.func = func
+
+	def register(self, force=False):
+		"""Register this operator for translation (used in filter parsing etc.)."""
+		if force:
+			self._OPERATOR_TRANSLATION[self.symbol] = self
+			return True
+		self._OPERATOR_TRANSLATION.setdefault(self.symbol, self)
+		return self._OPERATOR_TRANSLATION[self.symbol] is self
+
+	@classmethod
+	def from_string(cls, string) -> "Operator":
+		"""Get registered operator by string, raises KeyError if not found."""
+		return cls._OPERATOR_TRANSLATION[string]
+
+	def operate(self, *args):
+		"""Do the operation this operator was created for."""
+		return self.func(*args)
+
+	def __eq__(self, other):
+		try:
+			return self.symbol == other.string and self.func is other.func
+		except AttributeError:
+			return NotImplemented
+
+	def __str__(self):
+		return self.symbol
+
+
+class ComparisonOperator(Operator, enum.Enum):
+	"""Simple comparison operators, automatically registered."""
+
+	def __new__(cls, *args):
+		return Operator.__new__(cls)
+
+	def __init__(self, *args):
+		Operator.__init__(self, *args)
+		self.register(True)
+
+	LT = ("<", operator.lt)
+	LE = ("<=", operator.le)
+	EQ = ("==", operator.eq)
+	NE = ("!=", operator.ne)
+	GE = (">=", operator.ge)
+	GT = (">", operator.gt)
+
+
+class LogicalOperator(Operator, enum.Enum):
+	"""Logical operators, automatically registered."""
+
+	def __new__(cls, *args):
+		return Operator.__new__(cls)
+
+	def __init__(self, *args):
+		Operator.__init__(self, *args)
+		self.register(True)
+
+	AND = ("and", (lambda *args: all(args)))
+	OR = ("or", (lambda *args: any(args)))
+
+
 class Filter:
-	"""Represents an Icinga filter."""
+	"""Represents an Icinga filter.
 
-	# TODO implement data structure to store filters easily
+	- Simple filters consist of: attribute, operator, value   # TODO check whether something like 1==1 is possible
+		- Simple filters are joined with logical operators (&&, ||)
+		- Simple operators are ==, !=, and so on
+		- But methods for attriute objects are also allowed (e.g. contains on a dictionary)
+			- Fully implementing that without using IOM is at least very difficult, if not impossible
+			- An implementation that is at least better (not necessarily complete) can be done with IOM
+		- Also global functions taking attribute values are possible to use in filters, e.g. match, regex, typeof, ...
+			- It seems to be possible to add global functions via configuration
+			- This seems therefore impossible to fully implement
+	- Nesting any filters with explicit precedence is possible
 
-	# TODO implement operations (and, or, not, ...)
+	Taking these things into account, it is at least *very, very* difficult to implement filters in a way, that this
+	library can fully emulate the filtering of Icinga; it propably is impossible. That why, it is foolish to try, so
+	this is not the goal of this class or module, or even of this library.
+	Filtering must be done by Icinga itself, no matter what is done here.
+
+	The first goal of this class is to understand what is done with a filter at a certain level:
+	- Which attributes are involved in filtering?
+	- What kind of operator is used for which attribute (simple, method, function)?
+
+	The second goal is to create Icinga-compliant filter string using this class:
+	- Syntactical correct, but without really looking at semantics
+	- Implementing all operators, nesting filters with precedence, using attributes with Attribute objects
+	"""
+
+	# TODO implement as described in the class' docstring
