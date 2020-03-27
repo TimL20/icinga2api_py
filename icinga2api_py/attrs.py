@@ -8,7 +8,7 @@ import collections.abc
 import enum
 import logging
 from typing import Union, Optional, Sequence, Iterable, Generator, Iterator, Callable
-import operator
+import operator as op
 
 from .exceptions import AttributeParsingError
 
@@ -80,7 +80,7 @@ class Attribute:
 
 	def __init__(
 				self,
-				descr: Union[str, Sequence[str]],
+				descr: Union[str, Iterable[str]],
 				aware: bool = False,
 				object_type: Optional[str] = None
 			):
@@ -142,6 +142,17 @@ class Attribute:
 			builder.append(join_type)
 		builder.extend(attrs)
 		return cls(builder, object_type=object_type)
+
+	@classmethod
+	def ensure_type(cls, obj):
+		"""Ensure that obj is an Attrite object."""
+		if not isinstance(obj, cls):
+			if isinstance(obj, str):
+				return Attribute(obj, aware=("." in obj))
+			else:
+				# Assume sequence
+				return Attribute(obj, aware=(len(obj) > 1))
+		return obj
 
 	@property
 	def object_type_aware(self) -> bool:
@@ -257,7 +268,34 @@ class Attribute:
 		try:
 			return all((getattr(self, attr) == getattr(other, attr) for attr in self.__class__._object_attributes))
 		except AttributeError:
-			...  # TODO return filter object
+			return self.filter(ComparisonOperator.EQ, other)
+
+	def __ne__(self, other):
+		"""Compare to other attribute description, or return a filter object."""
+		try:
+			return all((getattr(self, attr) != getattr(other, attr) for attr in self.__class__._object_attributes))
+		except AttributeError:
+			return self.filter(ComparisonOperator.NE, other)
+
+	def __lt__(self, other):
+		"""Create a filter comparing this attribute to a value."""
+		return self.filter(ComparisonOperator.LT, other)
+
+	def __le__(self, other):
+		"""Create a filter comparing this attribute to a value."""
+		return self.filter(ComparisonOperator.LE, other)
+
+	def __ge__(self, other):
+		"""Create a filter comparing this attribute to a value."""
+		return self.filter(ComparisonOperator.GE, other)
+
+	def __gt__(self, other):
+		"""Create a filter comparing this attribute to a value."""
+		return self.filter(ComparisonOperator.GT, other)
+
+	def filter(self, operator: "Operator", value):
+		"""Create a Filter object representing a simple filter for this object compared to a certain value."""
+		return Filter.simple(self, operator, value)
 
 
 class AttributeSet(collections.abc.MutableSet):
@@ -285,8 +323,7 @@ class AttributeSet(collections.abc.MutableSet):
 
 	def _enforce_type(self, attr) -> Attribute:
 		"""Enforce the correct attribute type for attr."""
-		if not isinstance(attr, Attribute):
-			attr = Attribute(attr, aware=("." in attr))
+		attr = Attribute.ensure_type(attr)
 		if attr.object_type != self._object_type:
 			# Set new object type, set old object type as join type if join type was not set
 			return attr.amend_object_type(self._object_type, as_jointype=True, override_jointype=False)
@@ -367,12 +404,12 @@ class ComparisonOperator(Operator, enum.Enum):
 		Operator.__init__(self, *args)
 		self.register(True)
 
-	LT = ("<", operator.lt)
-	LE = ("<=", operator.le)
-	EQ = ("==", operator.eq)
-	NE = ("!=", operator.ne)
-	GE = (">=", operator.ge)
-	GT = (">", operator.gt)
+	LT = ("<", op.lt)
+	LE = ("<=", op.le)
+	EQ = ("==", op.eq)
+	NE = ("!=", op.ne)
+	GE = (">=", op.ge)
+	GT = (">", op.gt)
 
 
 class LogicalOperator(Operator, enum.Enum):
@@ -415,6 +452,64 @@ class Filter:
 	The second goal is to create Icinga-compliant filter string using this class:
 	- Syntactical correct, but without really looking at semantics
 	- Implementing all operators, nesting filters with precedence, using attributes with Attribute objects
+
+	This class implements both nested filters and simple filters. Nested filters are created by passing an operator and
+	a list of filter objects as subfilters. Simple filters are created by passing an operator, an attribute and a value.
+	Although using the alternative constructors is recomended (and is easier).
+
+	:param operator: The operator used in this filter.
+	:param subfilters: Nested filters this filter consists of.
+	:param attribute: Attribute that is compared to the value using the operator.
+	:param value: Value an attribute is compared to.
 	"""
 
-	# TODO implement as described in the class' docstring
+	def __init__(
+				self,
+				operator: Operator,
+				subfilters: Optional[Iterable["Filter"]] = None,  # For nested filters
+				attribute: Attribute = None, value=None  # For filters of type attribute-<operator>-value
+			):
+		#: The operator used for this particular filter
+		self.operator = operator
+		#: Subfilters this filter consists of
+		self.subs = list(subfilters) or list()
+		#: Attribute a simple filter compares to the value (using the operator)
+		self.attribute = attribute
+		#: The value the attribute is compared to
+		self.value = value
+
+	@classmethod
+	def simple(cls, attribute, operator: Operator, value):
+		"""Creates a filter of the type attribute <operator> value, where operator should be a comparison operator."""
+		attribute = Attribute.ensure_type(attribute)
+		return cls(operator, attribute=attribute, value=value)
+
+	@classmethod
+	def complex(cls, filters: Iterable["Filter"], operator: Operator):
+		"""Create a complex filter, that joins other filters together with an operator."""
+		return cls(operator, subfilters=filters)
+
+	# TODO implement parsing Icinga filters
+
+	# TODO implement simple object-oriented creation of such Filter objects
+
+	# TODO Implement "executing" filters that can be executed
+
+	@classmethod
+	def from_string(cls, string):
+		"""Create Filter object from filter string."""
+		# TODO implement
+
+	def __str__(self):
+		"""Returns the appropriate Icinga filter string."""
+		# TODO implement
+
+	@property
+	def is_simple(self) -> bool:
+		"""Whether this filter is a simple filter."""
+		return self.attribute is not None
+
+	@property
+	def is_executable(self) -> bool:
+		"""Whether this filter can be executed locally."""
+		# TODO implement
