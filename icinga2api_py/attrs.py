@@ -7,11 +7,11 @@
 import collections.abc
 import enum
 import logging
-from typing import Union, Optional, Sequence, Iterable, Generator, Iterator, Callable
+from typing import Union, Optional, Any, Sequence, Iterable, Generator, Iterator, Callable
 import operator as op
 import re
 
-from .exceptions import AttributeParsingError
+from .exceptions import AttributeParsingError, FilterParsingError
 
 LOGGER = logging.getLogger(__name__)
 
@@ -128,6 +128,8 @@ class Attribute:
 			self._object_type = first
 		else:
 			self._attrs = [first, *descr]
+
+	# TODO implement Array item acces via [index]
 
 	@classmethod
 	def _plain_init(
@@ -496,6 +498,8 @@ class BuiltinOperator(Operator, enum.Enum):
 	# Simple logical operators
 	AND = ("&&", Operator.Type.LOGICAL, (lambda *args: all(args)))
 	OR = ("||", Operator.Type.LOGICAL, (lambda *args: any(args)))
+	# Simple unary operators
+	NOT = ("!", Operator.Type.UNARY, (lambda x: not x))
 
 
 class Filter:
@@ -531,44 +535,34 @@ class Filter:
 
 	This class implements both nested filters and simple filters. Nested filters are created by passing an operator and
 	a list of filter objects as subfilters. Simple filters are created by passing an operator, an attribute and a value.
-	Although using the alternative constructors is recomended (and is easier).
 
 	:param operator: The operator used in this filter.
-	:param subfilters: Nested filters this filter consists of.
-	:param attribute: Attribute that is compared to the value using the operator.
-	:param value: Value an attribute is compared to.
+	:param operands: Operands.
 	"""
+
+	#: Regex pattern grouping characters into the following groups:
+	#: 0. Opening parenthesis that don't follow an alphanumeric char
+	#: 1. Opening parenthesis that follow an alphanumeric char
+	#: 2. Closing parenthesis
+	#: 3. Any alphanumeric char or . or [ or ]
+	#: 4. Everything else that is not space
+	_CHAR_GROUPING = re.compile(r"((?<![\w])[(])|((?<=[\w])[(])|(\))|([\w.\[\]]+)|([^\w.\s()]+)")
 
 	def __init__(
 				self,
-				operator: Operator,
-				subfilters: Optional[Iterable["Filter"]] = None,  # For nested filters
-				attribute: Attribute = None, value=None  # For filters of type attribute-<operator>-value
+				operator: Operator,  # The operator
+				operands: Optional[Iterable[Any]] = None  # Operands for the operator
 			):
 		#: The operator used for this particular filter
 		self.operator = operator
 		#: The operands for the operator (including possible Filter and Attribute objects as well as values)
-		self.args = list()
-		#: Whether it is a simple filter or not
-		self.is_simple = False
-		if attribute:
-			# -> Simple filter
-			self.is_simple = True
-			self.args = (attribute, value)
-		else:
-			# -> Complex filter consisting of sub-filters
-			self.args = list(subfilters) or self.args
+		self.operands = list(operands) or list()
 
 	@classmethod
-	def simple(cls, attribute, operator: Operator, value):
-		"""Creates a filter of the type attribute <operator> value, where operator should be a comparison operator."""
+	def simple(cls, attribute, operator: Operator, value) -> "Filter":
+		"""Creates a filter of the type attribute <operator> value."""
 		attribute = Attribute.ensure_type(attribute)
-		return cls(operator, attribute=attribute, value=value)
-
-	@classmethod
-	def complex(cls, filters: Iterable["Filter"], operator: Operator):
-		"""Create a complex filter, that joins other filters together with an operator."""
-		return cls(operator, subfilters=filters)
+		return cls(operator, (attribute, value))
 
 	# TODO implement parsing Icinga filters
 
@@ -577,18 +571,99 @@ class Filter:
 	@classmethod
 	def from_string(cls, string):
 		"""Create Filter object from filter string."""
-		# TODO implement
+		def helper_check_call_op() -> bool:
+			"""Checks whether currently in a call operator using the stack."""
+			try:
+				return stack[-1][-2].type.call
+			except (IndexError, AttributeError):
+				return False
+
+		def helper_closing_parenthesis():
+			"""Transform cur to appropriate Filter and modify res accordingly."""
+			if helper_check_call_op():
+				# In method/function call: remove every second item (comma)
+				operands = [item for i, item in enumerate(cur) if i % 2 == 0]
+				stack[-1].pop()  # Removes cur (= the parameters)
+				used_operator = stack[-1].pop()  # The operator (method/function) for this filter
+				if used_operator.type == Operator.Type.METHOD:
+					# Methods operate on attributes
+					attr = stack[-1].pop()  # Removes the first operand (=attribute the method operates on)
+					operands = (attr, *operands)
+				call_op = cls(used_operator, operands)
+				if call_op:
+					stack[-1].append(call_op)
+				else:
+					raise FilterParsingError("Error creating method/funtion based filter")
+
+			# List to filter
+			if not cur:
+				del stack[-1][-1]  # Remove cur
+			elif len(cur) == 1:
+				stack[-1][-1] = cur[0]
+			else:
+				raise FilterParsingError("Something was not processed correctly...")
+
+
+		# res is the resulting list of filters, cur keeps track of the "current" part in view
+		cur = res = list()
+		# Track cur references (to go up in hierarchy on closing brackets)
+		# The last item is a reference to the "parent" of cur
+		stack = list()
+		# The last "unfinished" operator or None
+		last_op = None
+		# Groups of characters (adding parenthesis to force final conversion)
+		grouped_chars = cls._CHAR_GROUPING.findall(f"({string})")
+		for chars in grouped_chars:
+			if chars[1]:  # (?<=[\w])[(]
+				if "." in cur[-1]:  # Previous item was a method
+					cur[-1] = Attribute.ensure_type(cur[-1])
+					method_symbol = list(cur[-1].full_attrs())[-1]
+					cur[-1] = cur[-1].parent_attribute()
+					cur.append(Operator(method_symbol, Operator.Type.METHOD))
+				else:  # Previous item was a function
+					cur[-1] = Operator(cur[-1], Operator.Type.FUNCTION)
+			if chars[0] or chars[1]:  # (
+				# One step down the hierarchy
+				cur.append(list())
+				stack.append(cur)
+				cur = cur[-1]
+			if chars[2]:  # )
+				# One step up the hierarchy
+				helper_closing_parenthesis()
+				cur = stack.pop()
+			if chars[3]:  # Alphanumeric, ., [, ]
+				if last_op:
+					if last_op.type.pos:  # Operator follows operand
+						op1 = cur[-2]
+						del cur[-2]
+						cur[-1] = cls(last_op, (op1, chars[3]))
+					else:  # Operator preceeds only this operand
+						cur[-1] = cls(last_op, (chars[3], ))
+					last_op = None
+				else:  # No last operator that is important
+					cur.append(chars[3])
+
+			# To this point, nothing is allowed to be unfinished
+			if last_op is not None:
+				raise FilterParsingError("Operator requires operand")
+
+			if chars[4]:  # Other characters -> operator
+				try:
+					last_op = Operator.from_string(chars[4])
+					cur.append(last_op)
+				except KeyError:
+					# No such operator...
+					cur.append(chars[4])  # TODO think about what to do in this case...
+		return res
 
 	def __str__(self):
 		"""Returns the appropriate Icinga filter string."""
-		return self.operator.print(*self.args)
+		return self.operator.print(*self.operands)
 
 	@property
 	def is_executable(self) -> bool:
 		"""Whether this filter can be executed locally."""
-		if self.is_simple:
-			return self.operator.is_executable
-		return self.operator.is_executable and all(o.is_executable for o in self.args)
+		return self.operator.is_executable and all(o.is_executable for o in self.operands)
 
 	def filter(self, item) -> bool:
 		"""Execute the filter for the given item, return True if the filter matches.

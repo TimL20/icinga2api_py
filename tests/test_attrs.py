@@ -5,7 +5,7 @@ Test for the attrs module.
 
 import pytest
 
-from icinga2api_py.attrs import Attribute, AttributeSet, Operator
+from icinga2api_py.attrs import Attribute, AttributeSet, Operator, Filter
 
 
 # Test data with the following key-value pairs (except the init_args they are all only checked properties):
@@ -324,8 +324,24 @@ def test_operator_print_method():
 
 # TODO add filter basics test
 
-# TODO add filter executable test
+# TODO add filter to str test
 
-# TODO add filter str test
+@pytest.mark.parametrize("string", (
+		"a.b == 1",
+		"a.b(1)",
+		"fun(c.d, 1)",
+		"!a.b",
+		"a.method(1, 2, 3)",
+		"fun((a.b == 1), 2)",
+		"a.b(1, 2) == 3",
+		# Maxi test string...
+		# "(a.b == c.d)&&(e.f.g(hi, j)||kl(m.n, !o.p, ~q.r)||s.t) && (u.v[0] < 1)",
+))
+def test_filter_fromstring(string):
+	"""Test Filter.form_string()."""
+	# Spacing is allowed to be different
+	assert str(Filter.from_string(string)).replace(" ", "") == string.replace(" ", "")
+
+# TODO add filter executable test
 
 # TODO add filter parse test
