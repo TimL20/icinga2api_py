@@ -453,29 +453,37 @@ class Operator:
 	def __str__(self):
 		return self.symbol
 
-	def print(self, *args):
+	def print(self, *operands):
 		"""Return a string that represents the operation done on the given args."""
+		def ops() -> Generator[str, None, None]:
+			"""Generator to get operands in usable form."""
+			for operand in operands:
+				string = str(operand)
+				if isinstance(operand, Filter):
+					string = f"({string})"
+				yield string
+
 		# Check number of operands
-		if len(args) < self.type.minimum_operands:
-			raise TypeError(f"{self.type.name.title()} operator needs more than {len(args)} operand(s)")
+		if len(operands) < self.type.minimum_operands:
+			raise TypeError(f"{self.type.name.title()} operator needs more than {len(operands)} operand(s)")
 		if self.type.pos:
 			if self.type.call:
 				# Method: <attribute>.<method>(value1, value2, ...)
-				return f"{str(args[0])}.{self.symbol}({', '.join(str(value) for value in args[1:])})"
+				return f"{str(operands[0])}.{self.symbol}({', '.join(list(ops())[1:])})"
 			else:  # call
 				if self.type.spaced:
-					return f" {self.symbol} ".join(str(arg) for arg in args)
+					return f" {self.symbol} ".join(ops())
 				else:  # spaced
-					return f"{self.symbol}".join(str(arg) for arg in args)
+					return f"{self.symbol}".join(ops())
 		else:  # pos
 			if self.type.call:
 				# Function: <function>(<operand1>, <operand2>, ...)
-				return f"{self.symbol}({', '.join(str(arg) for arg in args)})"
+				return f"{self.symbol}({', '.join(ops())})"
 			else:  # call
 				# Unary operator: <operator><attribute>
-				if len(args) > 1:
+				if len(operands) > 1:
 					raise TypeError(f"Unary operator needs exactly one operand")
-				return f"{self.symbol}{args[0]}"
+				return f"{self.symbol}{list(ops())[0]}"
 
 
 class BuiltinOperator(Operator, enum.Enum):
@@ -569,8 +577,14 @@ class Filter:
 	# TODO implement simple object-oriented creation of such Filter objects
 
 	@classmethod
-	def from_string(cls, string):
-		"""Create Filter object from filter string."""
+	def from_string(cls, string: str) -> "Filter":
+		"""Parse string and create filter for it."""
+		groups = cls._CHAR_GROUPING.findall(f"({string})")
+		return cls._from_groups(groups)
+
+	@classmethod
+	def _from_groups(cls, groups: Iterable[Sequence[str]]) -> "Filter":
+		"""Create Filter object from character groups."""
 		def helper_check_call_op() -> bool:
 			"""Checks whether currently in a call operator using the stack."""
 			try:
@@ -592,6 +606,7 @@ class Filter:
 				call_op = cls(used_operator, operands)
 				if call_op:
 					stack[-1].append(call_op)
+					return
 				else:
 					raise FilterParsingError("Error creating method/funtion based filter")
 
@@ -603,7 +618,6 @@ class Filter:
 			else:
 				raise FilterParsingError("Something was not processed correctly...")
 
-
 		# res is the resulting list of filters, cur keeps track of the "current" part in view
 		cur = res = list()
 		# Track cur references (to go up in hierarchy on closing brackets)
@@ -611,9 +625,7 @@ class Filter:
 		stack = list()
 		# The last "unfinished" operator or None
 		last_op = None
-		# Groups of characters (adding parenthesis to force final conversion)
-		grouped_chars = cls._CHAR_GROUPING.findall(f"({string})")
-		for chars in grouped_chars:
+		for chars in groups:
 			if chars[1]:  # (?<=[\w])[(]
 				if "." in cur[-1]:  # Previous item was a method
 					cur[-1] = Attribute.ensure_type(cur[-1])
@@ -654,11 +666,13 @@ class Filter:
 				except KeyError:
 					# No such operator...
 					cur.append(chars[4])  # TODO think about what to do in this case...
-		return res
+
+		return res[0]
 
 	def __str__(self):
 		"""Returns the appropriate Icinga filter string."""
-		return self.operator.print(*self.operands)
+		string = self.operator.print(*self.operands)
+		return string
 
 	@property
 	def is_executable(self) -> bool:

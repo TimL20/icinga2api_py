@@ -333,7 +333,7 @@ def test_operator_print_method():
 		"!a.b",
 		"a.method(1, 2, 3)",
 		"fun((a.b == 1), 2)",
-		"a.b(1, 2) == 3",
+		"(a.b(1, 2)) == 3",
 		# Maxi test string...
 		# "(a.b == c.d)&&(e.f.g(hi, j)||kl(m.n, !o.p, ~q.r)||s.t) && (u.v[0] < 1)",
 ))
