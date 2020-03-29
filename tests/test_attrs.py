@@ -335,7 +335,7 @@ def test_operator_print_method():
 		"fun((a.b == 1), 2)",
 		"(a.b(1, 2)) == 3",
 		# Maxi test string...
-		# "(a.b == c.d)&&(e.f.g(hi, j)||kl(m.n, !o.p, ~q.r)||s.t) && (u.v[0] < 1)",
+		"(a.b == c.d)&&(e.f.g(hi, j)||kl(m.n, !o.p, ~q.r)||s.t) && (u.v[0] < 1)",
 ))
 def test_filter_fromstring(string):
 	"""Test Filter.form_string()."""
