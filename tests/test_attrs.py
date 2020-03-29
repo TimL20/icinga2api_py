@@ -11,8 +11,8 @@ from icinga2api_py.attrs import Attribute, AttributeSet, Operator
 # Test data with the following key-value pairs (except the init_args they are all only checked properties):
 # init_args: Sequence of arguments the Attribute is initiated with
 # awareness: Whether the attribute object should be type-aware
-# string: String representation
-# icinga: Icinga format string representation
+# string: String representation in results format
+# icinga: String representation in Icinga format
 # joined: What the string representation should look like, if the join_type is set to "jointype"
 # object_joined: What the string representation should look like, if the object type is set as the join type
 # 					(defaults to string)
@@ -129,8 +129,8 @@ def test_attribute_basics(tdata_attr):
 	"""Test Attribute.{object_aware,__str__}."""
 	obj = tdata_attr["obj"]
 	assert obj.object_type_aware == tdata_attr["awareness"]
-	assert str(obj) == tdata_attr["string"]
-	assert obj.description(Attribute.Format.ICINGA) == tdata_attr["icinga"]
+	assert obj.description(Attribute.Format.RESULTS) == tdata_attr["string"]
+	assert obj.description(Attribute.Format.ICINGA) == str(obj) == tdata_attr["icinga"]
 
 	# Test that these don't fail
 	assert bool(repr(obj))
@@ -141,7 +141,7 @@ def test_attribute_jointype(tdata_attr):
 	"""Test Attribute.amend_join_type()."""
 	obj = tdata_attr["obj"].amend_join_type("jointype")
 	assert obj.join_type == "jointype"
-	assert str(obj) == tdata_attr["joined"]
+	assert obj.description(Attribute.Format.RESULTS) == tdata_attr["joined"]
 
 
 def test_attribute_object_joined(tdata_attr):
@@ -150,16 +150,16 @@ def test_attribute_object_joined(tdata_attr):
 	object_joined = tdata_attr.get("object_joined", tdata_attr["string"])
 	object_joined_overriden = tdata_attr.get("object_joined_overriden", object_joined)
 	joined = obj.amend_object_type("objecttype", as_jointype=True)
-	assert str(joined) == object_joined
+	assert joined.description(Attribute.Format.RESULTS) == object_joined
 	joined = obj.amend_object_type("objecttype", as_jointype=True, override_jointype=True)
-	assert str(joined) == object_joined_overriden
+	assert joined.description(Attribute.Format.RESULTS) == object_joined_overriden
 
 
 def test_attribute_objecttype(tdata_attr):
 	"""Test Attribute.amend_object_type()."""
 	obj = tdata_attr["obj"].amend_object_type("a")
 	assert obj.object_type == "a"
-	assert str(obj) == tdata_attr.get("taot", tdata_attr["string"])
+	assert obj.description(Attribute.Format.RESULTS) == tdata_attr.get("taot", tdata_attr["string"])
 
 
 @pytest.mark.parametrize("init_args", [d["init_args"] for d in TEST_DATA], ids=IDS)
@@ -209,11 +209,11 @@ def tdata_set(request):
 
 def test_attributeset_objecttype(tdata_set):
 	"""Test the object_type handling of AttributeSet."""
-	assert set(str(attr) for attr in tdata_set["set"]) == tdata_set["res"]
+	assert set(attr.description(Attribute.Format.RESULTS) for attr in tdata_set["set"]) == tdata_set["res"]
 
 	tdata_set["set"].object_type = "b"
 	assert tdata_set["set"].object_type == "b"
-	assert set(str(attr) for attr in tdata_set["set"]) == tdata_set["type_b"]
+	assert set(attr.description(Attribute.Format.RESULTS) for attr in tdata_set["set"]) == tdata_set["type_b"]
 
 
 def test_attributeset_contain(tdata_set):
@@ -234,22 +234,22 @@ def test_operator_basics():
 	def func(*args):
 		return args
 
-	o = Operator("a", func)
-	assert o.symbol == "a"
-	assert str(o) == "a"
-	assert o.func is func
+	o = Operator("##", Operator.Type.COMPARISON, func)
+	assert o.symbol == "##"
+	assert str(o) == "##"
+	assert o.operate is func
 
 	# Registration
 	assert o.register() is True
-	assert Operator.from_string("a") is o
+	assert Operator.from_string("##") is o
 	assert o.register() is True
 	# Register returns False if not registered...
-	assert Operator("a", None).register() is False
+	assert Operator("##", Operator.Type.COMPARISON, None).register() is False
 	assert o.register(True)
 
 	assert o.operate(0, 1, 2) == (0, 1, 2)
 
-	assert o == Operator("a", func)
+	assert o == Operator("##", Operator.Type.COMPARISON, func)
 	assert o != 1
 
 
@@ -260,9 +260,72 @@ def test_operator_basics():
 		("!=", (0, 1), True), ("!=", (1, 1), False),
 		(">=", (1, 0), True), (">=", (0, 1), False),
 		(">", (1, 0), True), (">", (0, 1), False),
-		("and", (1, 1, 1), True), ("and", (1, 0, 1), False),
-		("or", (1, 0, 0), True), ("or", (0, 0, 0), False),
+		("&&", (1, 1, 1), True), ("&&", (1, 0, 1), False),
+		("||", (1, 0, 0), True), ("||", (0, 0, 0), False),
 ))
 def test_operators_concrete(string, args, res):
 	"""Test concrete operators."""
 	assert Operator.from_string(string).operate(*args) == res
+
+
+def test_operator_print_unary():
+	"""Test Operator.print() for unary operator type."""
+	with pytest.raises(ValueError):
+		_ = Operator("a", Operator.Type.UNARY)  # Would be indistuingishable from the operand
+
+	op = Operator("+", Operator.Type.UNARY)
+	assert op.print(1) == "+1"
+
+	with pytest.raises(TypeError):
+		_ = op.print(1, 2)  # Too many operands
+
+
+def test_operator_print_comparison():
+	"""Test Operator.print() for comparison operator type."""
+	with pytest.raises(ValueError):
+		_ = Operator("a", Operator.Type.UNARY)  # Would be indistuingishable from the operand
+
+	op = Operator("+", Operator.Type.COMPARISON)
+	assert op.print(1, 2).replace(" ", "") == "1+2"
+
+	with pytest.raises(TypeError):
+		_ = op.print(1)  # Too less operands
+
+
+def test_operator_print_logical():
+	"""Test Operator.print() for logical operator type."""
+	with pytest.raises(ValueError):
+		_ = Operator("a", Operator.Type.LOGICAL)  # Would be indistuingishable from the operand
+
+	op = Operator("+", Operator.Type.LOGICAL)
+	assert op.print(1, 2).replace(" ", "") == "1+2"
+
+	with pytest.raises(TypeError):
+		_ = op.print(1)  # Too less operands
+
+
+def test_operator_print_function():
+	"""Test Operator.print() for function operator type."""
+	with pytest.raises(ValueError):
+		_ = Operator("+", Operator.Type.FUNCTION)  # Function name needs to consist of alphanumerical characters
+
+	op = Operator("a", Operator.Type.FUNCTION)
+	assert op.print("b") == "a(b)"
+
+
+def test_operator_print_method():
+	"""Test Operator.print() for method operator type."""
+	with pytest.raises(ValueError):
+		_ = Operator("+", Operator.Type.METHOD)  # Function name needs to consist of alphanumerical characters
+
+	op = Operator("a", Operator.Type.METHOD)
+	assert op.print("b") == "b.a()"
+
+
+# TODO add filter basics test
+
+# TODO add filter executable test
+
+# TODO add filter str test
+
+# TODO add filter parse test

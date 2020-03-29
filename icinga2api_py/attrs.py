@@ -9,6 +9,7 @@ import enum
 import logging
 from typing import Union, Optional, Sequence, Iterable, Generator, Iterator, Callable
 import operator as op
+import re
 
 from .exceptions import AttributeParsingError
 
@@ -240,7 +241,7 @@ class Attribute:
 				yield self.join_type
 			yield from self.attrs
 
-	def description(self, form: Format = Format.ICINGA) -> str:
+	def description(self, form: Format = Format.RESULTS) -> str:
 		"""Return the attribute description (= string representation) in the given format."""
 		return ".".join(self.full_attrs(form))
 
@@ -250,7 +251,7 @@ class Attribute:
 
 	def __str__(self):
 		"""Return the string representation of this attribute description."""
-		return self.description(self.Format.RESULTS)
+		return self.description(self.Format.ICINGA)
 
 	def __repr__(self):
 		"""Full string representation."""
@@ -268,30 +269,30 @@ class Attribute:
 		try:
 			return all((getattr(self, attr) == getattr(other, attr) for attr in self.__class__._object_attributes))
 		except AttributeError:
-			return self.filter(ComparisonOperator.EQ, other)
+			return self.filter(BuiltinOperator.EQ, other)
 
 	def __ne__(self, other):
 		"""Compare to other attribute description, or return a filter object."""
 		try:
 			return all((getattr(self, attr) != getattr(other, attr) for attr in self.__class__._object_attributes))
 		except AttributeError:
-			return self.filter(ComparisonOperator.NE, other)
+			return self.filter(BuiltinOperator.NE, other)
 
 	def __lt__(self, other):
 		"""Create a filter comparing this attribute to a value."""
-		return self.filter(ComparisonOperator.LT, other)
+		return self.filter(BuiltinOperator.LT, other)
 
 	def __le__(self, other):
 		"""Create a filter comparing this attribute to a value."""
-		return self.filter(ComparisonOperator.LE, other)
+		return self.filter(BuiltinOperator.LE, other)
 
 	def __ge__(self, other):
 		"""Create a filter comparing this attribute to a value."""
-		return self.filter(ComparisonOperator.GE, other)
+		return self.filter(BuiltinOperator.GE, other)
 
 	def __gt__(self, other):
 		"""Create a filter comparing this attribute to a value."""
-		return self.filter(ComparisonOperator.GT, other)
+		return self.filter(BuiltinOperator.GT, other)
 
 	def filter(self, operator: "Operator", value):
 		"""Create a Filter object representing a simple filter for this object compared to a certain value."""
@@ -355,17 +356,73 @@ class AttributeSet(collections.abc.MutableSet):
 		return iter(self._attrs)
 
 
+#: Pattern for "usual" operators
+_USUAL_OPERATOR_PATTERN = re.compile(r"[a-zA-Z_][\w_]*")
+#: Pattern for functions and methods
+_FUNCTION_PATTERN = re.compile(r"[^\w\s().,[\]]+")
+
+
 class Operator:
 	"""Operator used in filters."""
+
+	class Type(enum.IntEnum):
+		"""Type of Operator."""
+
+		#: Unary operators
+		UNARY = 0b000
+		#: Comparative operators
+		COMPARISON = 0b010
+		#: Non-unary logical operators
+		LOGICAL = 0b011
+		#: Function
+		FUNCTION = 0b100
+		#: Method (executed *on* an attribute, not with)
+		METHOD = 0b110
+
+		@property
+		def spaced(self) -> bool:
+			"""True if this kind of operator should be separated by spaces."""
+			return bool(0b1 & self)
+
+		@property
+		def pos(self) -> bool:
+			"""False if the operator is written before the first operand, True otherwise."""
+			return bool(0b10 & self)
+
+		@property
+		def call(self) -> bool:
+			"""True if this operator requires a function call."""
+			return bool(0b100 & self)
+
+		@property
+		def minimum_operands(self) -> int:
+			"""Return the number of minimum operands needed."""
+			if self == self.UNARY or self.call:
+				return 1
+			else:
+				return 2
+
+		@property
+		def pattern(self):
+			"""Return pattern this operator type is required to match."""
+			if self.call:
+				return _USUAL_OPERATOR_PATTERN
+			# Usual operator: no alphanumeric character, no space, no brackets, no dot, no comma
+			return _FUNCTION_PATTERN
 
 	#: Translate operator string -> Operator object
 	_OPERATOR_TRANSLATION = dict()
 
-	def __init__(self, symbol: str, func: Callable):
+	def __init__(self, symbol: str, type_: Type, func: Optional[Callable] = None):
+		# Check symbol for compliance
+		if not type_.pattern.match(symbol):
+			raise ValueError("Operator symbol not compliant with the pattern of this operator type")
 		#: Symbol (string) for this operator
 		self.symbol = symbol
+		#: Type of this operator
+		self.type = type_
 		#: Function that executes the operation
-		self.func = func
+		self.operate = func
 
 	def register(self, force=False):
 		"""Register this operator for translation (used in filter parsing etc.)."""
@@ -380,22 +437,47 @@ class Operator:
 		"""Get registered operator by string, raises KeyError if not found."""
 		return cls._OPERATOR_TRANSLATION[string]
 
-	def operate(self, *args):
-		"""Do the operation this operator was created for."""
-		return self.func(*args)
+	@property
+	def is_executable(self) -> bool:
+		"""Whether this operator is executable (locally)."""
+		return self.operate is not None
 
 	def __eq__(self, other):
 		try:
-			return self.symbol == other.string and self.func is other.func
+			return self.symbol == other.symbol and self.operate is other.operate
 		except AttributeError:
 			return NotImplemented
 
 	def __str__(self):
 		return self.symbol
 
+	def print(self, *args):
+		"""Return a string that represents the operation done on the given args."""
+		# Check number of operands
+		if len(args) < self.type.minimum_operands:
+			raise TypeError(f"{self.type.name.title()} operator needs more than {len(args)} operand(s)")
+		if self.type.pos:
+			if self.type.call:
+				# Method: <attribute>.<method>(value1, value2, ...)
+				return f"{str(args[0])}.{self.symbol}({', '.join(str(value) for value in args[1:])})"
+			else:  # call
+				if self.type.spaced:
+					return f" {self.symbol} ".join(str(arg) for arg in args)
+				else:  # spaced
+					return f"{self.symbol}".join(str(arg) for arg in args)
+		else:  # pos
+			if self.type.call:
+				# Function: <function>(<operand1>, <operand2>, ...)
+				return f"{self.symbol}({', '.join(str(arg) for arg in args)})"
+			else:  # call
+				# Unary operator: <operator><attribute>
+				if len(args) > 1:
+					raise TypeError(f"Unary operator needs exactly one operand")
+				return f"{self.symbol}{args[0]}"
 
-class ComparisonOperator(Operator, enum.Enum):
-	"""Simple comparison operators, automatically registered."""
+
+class BuiltinOperator(Operator, enum.Enum):
+	"""Simple operators that build on builtin operators."""
 
 	def __new__(cls, *args):
 		return Operator.__new__(cls)
@@ -404,26 +486,16 @@ class ComparisonOperator(Operator, enum.Enum):
 		Operator.__init__(self, *args)
 		self.register(True)
 
-	LT = ("<", op.lt)
-	LE = ("<=", op.le)
-	EQ = ("==", op.eq)
-	NE = ("!=", op.ne)
-	GE = (">=", op.ge)
-	GT = (">", op.gt)
-
-
-class LogicalOperator(Operator, enum.Enum):
-	"""Logical operators, automatically registered."""
-
-	def __new__(cls, *args):
-		return Operator.__new__(cls)
-
-	def __init__(self, *args):
-		Operator.__init__(self, *args)
-		self.register(True)
-
-	AND = ("and", (lambda *args: all(args)))
-	OR = ("or", (lambda *args: any(args)))
+	# Simple comparison
+	LT = ("<", Operator.Type.COMPARISON, op.lt)
+	LE = ("<=", Operator.Type.COMPARISON, op.le)
+	EQ = ("==", Operator.Type.COMPARISON, op.eq)
+	NE = ("!=", Operator.Type.COMPARISON, op.ne)
+	GE = (">=", Operator.Type.COMPARISON, op.ge)
+	GT = (">", Operator.Type.COMPARISON, op.gt)
+	# Simple logical operators
+	AND = ("&&", Operator.Type.LOGICAL, (lambda *args: all(args)))
+	OR = ("||", Operator.Type.LOGICAL, (lambda *args: any(args)))
 
 
 class Filter:
@@ -431,13 +503,17 @@ class Filter:
 
 	- Simple filters consist of: attribute, operator, value   # TODO check whether something like 1==1 is possible
 		- Simple filters are joined with logical operators (&&, ||)
-		- Simple operators are ==, !=, and so on
+		- Simple comparative operators compare an values of the specified attribute to the specified value
 		- But methods for attriute objects are also allowed (e.g. contains on a dictionary)
 			- Fully implementing that without using IOM is at least very difficult, if not impossible
 			- An implementation that is at least better (not necessarily complete) can be done with IOM
 		- Also global functions taking attribute values are possible to use in filters, e.g. match, regex, typeof, ...
 			- It seems to be possible to add global functions via configuration
 			- This seems therefore impossible to fully implement
+		- Additionally there are unary operators
+		- And also there is the possibility that there is no operator at all, in this case it's similar to Python's
+			automatic bool() interpretation in if-clauses (e.g. empty strings are False), but also checks whether this
+			attribute is defined (True if defined, False if not)
 	- Nesting any filters with explicit precedence is possible
 
 	Taking these things into account, it is at least *very, very* difficult to implement filters in a way, that this
@@ -471,12 +547,17 @@ class Filter:
 			):
 		#: The operator used for this particular filter
 		self.operator = operator
-		#: Subfilters this filter consists of
-		self.subs = list(subfilters) or list()
-		#: Attribute a simple filter compares to the value (using the operator)
-		self.attribute = attribute
-		#: The value the attribute is compared to
-		self.value = value
+		#: The operands for the operator (including possible Filter and Attribute objects as well as values)
+		self.args = list()
+		#: Whether it is a simple filter or not
+		self.is_simple = False
+		if attribute:
+			# -> Simple filter
+			self.is_simple = True
+			self.args = (attribute, value)
+		else:
+			# -> Complex filter consisting of sub-filters
+			self.args = list(subfilters) or self.args
 
 	@classmethod
 	def simple(cls, attribute, operator: Operator, value):
@@ -493,8 +574,6 @@ class Filter:
 
 	# TODO implement simple object-oriented creation of such Filter objects
 
-	# TODO Implement "executing" filters that can be executed
-
 	@classmethod
 	def from_string(cls, string):
 		"""Create Filter object from filter string."""
@@ -502,14 +581,18 @@ class Filter:
 
 	def __str__(self):
 		"""Returns the appropriate Icinga filter string."""
-		# TODO implement
-
-	@property
-	def is_simple(self) -> bool:
-		"""Whether this filter is a simple filter."""
-		return self.attribute is not None
+		return self.operator.print(*self.args)
 
 	@property
 	def is_executable(self) -> bool:
 		"""Whether this filter can be executed locally."""
+		if self.is_simple:
+			return self.operator.is_executable
+		return self.operator.is_executable and all(o.is_executable for o in self.args)
+
+	def filter(self, item) -> bool:
+		"""Execute the filter for the given item, return True if the filter matches.
+
+		# TODO write more about usage and requirements...
+		"""
 		# TODO implement
