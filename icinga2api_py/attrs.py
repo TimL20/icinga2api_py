@@ -712,7 +712,7 @@ class Filter(Operand):
 					cur.append(operator)
 				except KeyError:
 					# No such operator...
-					cur.append(chars[4])  # TODO think about what to do in this case...
+					cur.append(ValueOperand(chars[4]))  # TODO think about what to do in this case...
 
 		return res
 
@@ -733,13 +733,18 @@ class Filter(Operand):
 				call = False
 				# Previous item was call operator, current is the comma-separated parameter list
 				parameters = list()
+				last_comma = 0
 				for i, item in enumerate(sub):
-					if i % 2:
-						continue
-					if hasattr(item, "__iter__"):
+					if isinstance(item, ValueOperand) and item.value == ",":
+						param = parameters[last_comma:]
+						del parameters[last_comma:]
+						param = cls._from_list(param)
+						parameters.append(param)
+						last_comma = len(parameters)
+					elif hasattr(item, "__iter__"):
 						parameters.append(cls._from_list(item))
 					else:
-						parameters.append(ValueOperand(item))
+						parameters.append(item)
 				if lst[index - 1].type.pos:
 					# Method operator: <operand>.<method>(<parameters>)
 					operator = prepared.pop(-1)
@@ -799,7 +804,12 @@ class Filter(Operand):
 				operand = lst.pop(i + 1)
 				lst[i] = cls(operator, (operand,))
 
-		return lst[0]
+		if not lst:
+			raise FilterParsingError("Empty list")
+		elif len(lst) == 1:
+			return lst[0]
+		else:
+			raise FilterParsingError("Something went wrong...")
 
 	def __str__(self):
 		"""Returns the appropriate Icinga filter string."""
