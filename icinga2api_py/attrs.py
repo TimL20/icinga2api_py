@@ -32,22 +32,22 @@ class _PrimaryAttribute(enum.Enum):
 #: The special attribute keys that are handled in parsing and are therfore illegal or ignored in some places
 SPECIAL_ATTRIBUTE_KEYS = set((item.value for item in _PrimaryAttribute if item.value is not None))
 
-#: Patterns for Icinga literals
+#: Patterns for Icinga literals + converter callables (or None if not converted)
 _LITERAL_PATTERNS = (
 	# String literals
-	re.compile(r'".*"'),
+	(re.compile(r'".*"'), None),
 	# Boolean literals
-	re.compile(r"true|false"),
-	# Null
-	re.compile(r"null"),
+	(re.compile(r"true"), lambda _: True), (re.compile(r"false"), lambda _: False),
+	# Null/None
+	(re.compile(r"null"), lambda _: None),
 	# Dictionary literals (not parsed as an operand)
-	re.compile(r"{.*}"),
+	(re.compile(r"{.*}"), None),
 	# Array literals (not parsed as an operand)
-	re.compile(r"\[.*\]"),
-	# Number literals (exponents are not mentioned in Icinga docs, but Python parses them anyway...)
-	re.compile(r"[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?"),
+	(re.compile(r"\[.*\]"), None),
 	# Duration literals
-	re.compile(r"[-+]?((\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?(ms|s|m|h|d)?)+"),
+	(re.compile(r"[-+]?((\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?(ms|s|m|h|d)?)+"), None),
+	# Number literals (exponents are not mentioned in Icinga docs)
+	(re.compile(r"[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?"), float),
 )
 
 
@@ -57,7 +57,7 @@ class Operand(abc.ABC):
 	@staticmethod
 	def possible_attribute(string: str) -> bool:
 		"""Returns True if the given string is possibly an Attribute."""
-		return any(pattern.match(string) for pattern in _LITERAL_PATTERNS)
+		return not any(pattern.fullmatch(string) for pattern, converter in _LITERAL_PATTERNS)
 
 	@abc.abstractmethod
 	def __str__(self):
@@ -102,8 +102,21 @@ class ValueOperand(Operand):
 		except TypeError:
 			return False  # In case the value is not a string
 
+	@classmethod
+	def create_with_type(cls, value):
+		"""Create a ValueOperand guessing the correct type of value."""
+		try:
+			for pattern, converter in _LITERAL_PATTERNS:
+				if pattern.fullmatch(value):
+					return cls(converter(value))
+		except TypeError:
+			return value
+
 	def __str__(self):
 		return str(self.value)
+
+	def __repr__(self):
+		return f"<{self.__class__.__name__} {repr(self.value)}>"
 
 	def __eq__(self, other):
 		try:
@@ -481,7 +494,7 @@ class Operator:
 	#: Translate operator string -> Operator object
 	_OPERATOR_TRANSLATION = dict()
 
-	def __init__(self, symbol, type_: Type, func: Optional[Callable] = None):
+	def __init__(self, symbol, type_: Type, precedence: int = 99, func: Optional[Callable] = None):
 		symbol = str(symbol)
 		# Check symbol for compliance
 		if not type_.pattern.match(symbol):
@@ -490,6 +503,8 @@ class Operator:
 		self.symbol = symbol
 		#: Type of this operator
 		self.type = type_
+		#: Precedence of this operator
+		self.precedence = precedence
 		#: Function that executes the operation
 		self.operate = func
 
@@ -505,6 +520,11 @@ class Operator:
 	def from_string(cls, string) -> "Operator":
 		"""Get registered operator by string, raises KeyError if not found."""
 		return cls._OPERATOR_TRANSLATION[string]
+
+	@classmethod
+	def all_operators(cls) -> Iterable["Operator"]:
+		"""Return all operators, sorted by precedence."""
+		return sorted((operator for operator in cls._OPERATOR_TRANSLATION.values()), key=op.attrgetter("precedence"))
 
 	@property
 	def is_executable(self) -> bool:
@@ -563,18 +583,18 @@ class BuiltinOperator(Operator, enum.Enum):
 		Operator.__init__(self, *args)
 		self.register(True)
 
-	# Simple comparison
-	LT = ("<", Operator.Type.COMPARISON, op.lt)
-	LE = ("<=", Operator.Type.COMPARISON, op.le)
-	EQ = ("==", Operator.Type.COMPARISON, op.eq)
-	NE = ("!=", Operator.Type.COMPARISON, op.ne)
-	GE = (">=", Operator.Type.COMPARISON, op.ge)
-	GT = (">", Operator.Type.COMPARISON, op.gt)
-	# Simple logical operators
-	AND = ("&&", Operator.Type.LOGICAL, (lambda *args: all(args)))
-	OR = ("||", Operator.Type.LOGICAL, (lambda *args: any(args)))
 	# Simple unary operators
-	NOT = ("!", Operator.Type.UNARY, (lambda x: not x))
+	NOT = ("!", Operator.Type.UNARY, 20, (lambda x: not x))
+	# Simple comparison
+	LT = ("<", Operator.Type.COMPARISON, 60, op.lt)
+	LE = ("<=", Operator.Type.COMPARISON, 60, op.le)
+	EQ = ("==", Operator.Type.COMPARISON, 60, op.eq)
+	NE = ("!=", Operator.Type.COMPARISON, 60, op.ne)
+	GE = (">=", Operator.Type.COMPARISON, 60, op.ge)
+	GT = (">", Operator.Type.COMPARISON, 60, op.gt)
+	# Simple logical operators
+	OR = ("||", Operator.Type.LOGICAL, 120, (lambda *args: any(args)))
+	AND = ("&&", Operator.Type.LOGICAL, 130, (lambda *args: all(args)))
 
 
 class Filter(Operand):
@@ -659,52 +679,18 @@ class Filter(Operand):
 	@classmethod
 	def from_string(cls, string: str) -> "Filter":
 		"""Parse string and create filter for it."""
-		groups = cls._CHAR_GROUPING.findall(f"({string})")
-		return cls._from_groups(groups)
+		return cls._from_list(cls._to_group_split(string))
 
 	@classmethod
-	def _from_groups(cls, groups: Iterable[Sequence[str]]) -> "Filter":
-		"""Create Filter object from character groups."""
-		def helper_check_call_op() -> bool:
-			"""Checks whether currently in a call operator using the stack."""
-			try:
-				return stack[-1][-2].type.call
-			except (IndexError, AttributeError):
-				return False
-
-		def helper_closing_parenthesis():
-			"""Transform cur to appropriate Filter and modify res accordingly."""
-			if helper_check_call_op():
-				# In method/function call: remove every second item (comma)
-				operands = [item for i, item in enumerate(cur) if i % 2 == 0]
-				stack[-1].pop()  # Removes cur (= the parameters)
-				used_operator = stack[-1].pop()  # The operator (method/function) for this filter
-				if used_operator.type == Operator.Type.METHOD:
-					# Methods operate on attributes
-					attr = stack[-1].pop()  # Removes the first operand (=attribute the method operates on)
-					operands = (attr, *operands)
-				call_op = cls(used_operator, operands)
-				if call_op:
-					stack[-1].append(call_op)
-					return
-				else:
-					raise FilterParsingError("Error creating method/funtion based filter")
-
-			# List to filter
-			if not cur:
-				del stack[-1][-1]  # Remove cur
-			elif len(cur) == 1:
-				stack[-1][-1] = cur[0]
-			else:
-				raise FilterParsingError("Something was not processed correctly...")
-
+	def _to_group_split(cls, string: str) -> Sequence:
+		"""Create Filter object from character lst, helper method for from_string()."""
+		# Split string inot character lst
+		groups = cls._CHAR_GROUPING.findall(f"({string})")
 		# res contains the filter to return, cur keeps track of the "current" part in view
 		cur = res = list()
 		# Track cur references (to go up in hierarchy on closing brackets)
 		# The last item is a reference to the "parent" of cur
 		stack = list()
-		# The last "unfinished" operator or None
-		last_op = None
 		for chars in groups:
 			if chars[1]:  # (?<=[\w])[(]
 				# Previous item was a function or method
@@ -716,33 +702,104 @@ class Filter(Operand):
 				cur = cur[-1]  # Set view to the new child-filter-build-list
 			if chars[2]:  # )
 				# One step up the hierarchy
-				helper_closing_parenthesis()
 				cur = stack.pop()  # cur <= parent of cur
 			if chars[3]:  # Alphanumeric, ., [, ]
-				if last_op:
-					if last_op.type.pos:  # Operator follows operand
-						op1 = cur[-2]
-						del cur[-2]
-						cur[-1] = cls(last_op, (op1, chars[3]))
-					else:  # Operator preceeds only this operand
-						cur[-1] = cls(last_op, (chars[3], ))
-					last_op = None
-				else:  # No last operator that is relevant
-					cur.append(chars[3])
-
-			# To this point, nothing is allowed to be unfinished
-			if last_op is not None:
-				raise FilterParsingError("Operator requires operand")
+				cur.append(ValueOperand(chars[3]))
 
 			if chars[4]:  # Other characters -> operator
 				try:
-					last_op = Operator.from_string(chars[4])
-					cur.append(last_op)
+					operator = Operator.from_string(chars[4])
+					cur.append(operator)
 				except KeyError:
 					# No such operator...
 					cur.append(chars[4])  # TODO think about what to do in this case...
 
-		return res[0]
+		return res
+
+	@classmethod
+	def _from_list(cls, lst: Union[Sequence, Operand, Operator]) -> "Filter":
+		"""Iterable of operands/operators/filter/iterables (of these) to one filter object, helper method for f
+		rom_string()."""
+		# Make sure it's mutable
+		if not hasattr(lst, "pop"):
+			lst = list(lst)
+
+		# First step: create a list with method/function calls resolved
+		prepared = list()
+		# Flag whenever
+		call = False
+		for index, sub in enumerate(lst):
+			if call:
+				call = False
+				# Previous item was call operator, current is the comma-separated parameter list
+				parameters = list()
+				for i, item in enumerate(sub):
+					if i % 2:
+						continue
+					if hasattr(item, "__iter__"):
+						parameters.append(cls._from_list(item))
+					else:
+						parameters.append(ValueOperand(item))
+				if lst[index - 1].type.pos:
+					# Method operator: <operand>.<method>(<parameters>)
+					operator = prepared.pop(-1)
+					obj = prepared.pop(-1)
+					prepared.append(cls(operator, (obj, *parameters)))
+				else:
+					# Function operator: <function>(<parameters>)
+					prepared[-1] = cls(prepared[-1], parameters)
+				continue
+
+			try:
+				if sub.type.call:
+					call = True
+			except AttributeError:
+				pass
+			prepared.append(sub)
+
+		lst = prepared
+		# Second step: resolve lists recusively
+		for i, item in enumerate(lst):
+			if isinstance(item, collections.abc.Sequence):
+				lst[i] = cls._from_list(item)
+
+		# Third: Handle every other operator
+		def min_operator() -> int:
+			"""Get index of the item in lst that is the operator with the smallest precedence."""
+			m_index, precedence = -1, 0
+			for i, item in enumerate(lst):
+				try:
+					if (item.precedence and not precedence) or item.precedence < precedence:
+						m_index, precedence = i, item.precedence
+				except AttributeError:
+					pass
+			return m_index
+
+		while True:
+			i = min_operator()
+			if i < 0:
+				break
+
+			# Found operator with minimum precedence
+			operator = lst[i]
+			# Found operator in lst -> what kind of operator is it?
+			if operator.type.pos:
+				# Operator after first operand
+				if operator.type.minimum_operands == 1:
+					# <operand><operator>
+					operand = lst.pop(i - 1)
+					lst[-1] = cls(operator, (operand,))
+				else:
+					# <operand1><operator><operand2>
+					operand2 = lst.pop(i + 1)
+					operand1 = lst.pop(i - 1)
+					lst[-1] = cls(operator, (operand1, operand2))
+			else:
+				# Operator before operand
+				operand = lst.pop(i + 1)
+				lst[i] = cls(operator, (operand,))
+
+		return lst[0]
 
 	def __str__(self):
 		"""Returns the appropriate Icinga filter string."""
