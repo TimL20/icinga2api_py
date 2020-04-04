@@ -5,7 +5,7 @@ Test for the attrs module.
 
 import pytest
 
-from icinga2api_py.attrs import Attribute, AttributeSet, Operator, Filter
+from icinga2api_py.attrs import Attribute, AttributeSet, Operator, Filter, FilterExecutionContext
 
 
 # Test data with the following key-value pairs (except the init_args they are all only checked properties):
@@ -348,6 +348,29 @@ def test_filter_fromstring(string, string2):
 	# Spacing is allowed to be different
 	assert fstring == string.replace(" ", "")
 	assert str(obj2).replace(" ", "") == fstring
+
+
+@pytest.fixture(scope="module")
+def context():
+	"""FilterExecutionContext object."""
+	o = FilterExecutionContext()
+	o["double"] = lambda x: x*2
+	o["a"] = [0, 1]
+	o["d"] = {"b": 2, "c": 3}
+	o["e"] = 5
+	return o
+
+
+def test_context(context):
+	"""Basic FilterExecutionContext test."""
+	assert context["double"](2) == 4
+	assert context["e"] == 5
+	assert context["d.c"] == 3
+
+
+def test_context_merge(context):
+	"""Test FilterExecutionContext.merge()."""
+	# TODO write test
 
 
 # TODO add filter execution test

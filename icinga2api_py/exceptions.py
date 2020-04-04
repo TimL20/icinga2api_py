@@ -20,3 +20,7 @@ class AttributeParsingError(ParsingError):
 
 class FilterParsingError(ParsingError):
 	"""Error on parsing a filter string."""
+
+
+class FilterExecutionError(RuntimeError):
+	"""Error when executing a filter locally, in which case it's propably not possible to execute the filter locally."""

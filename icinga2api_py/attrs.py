@@ -8,11 +8,11 @@ import abc
 import collections.abc
 import enum
 import logging
-from typing import Union, Optional, Any, Sequence, Iterable, Generator, Iterator, Callable
+from typing import Union, Optional, Any, Sequence, Iterable, Generator, Iterator, Callable, Mapping
 import operator as op
 import re
 
-from .exceptions import AttributeParsingError, FilterParsingError
+from .exceptions import AttributeParsingError, FilterParsingError, FilterExecutionError
 
 LOGGER = logging.getLogger(__name__)
 
@@ -657,15 +657,8 @@ class Filter(Operand):
 		for operand in operands:
 			if isinstance(operand, Operand):
 				self.operands.append(operand)
-				continue
-			try:
-				if Operand.possible_attribute(operand):
-					self.operands.append(Attribute(operand))
-					continue
-			except (TypeError, AttributeParsingError):
-				pass
-			# else
-			self.operands.append(ValueOperand(operand))
+			else:
+				self.operands.append(ValueOperand(operand))
 
 	@classmethod
 	def simple(cls, attribute, operator: Operator, value) -> "Filter":
@@ -820,23 +813,42 @@ class Filter(Operand):
 		string = self.operator.print(*self.operands)
 		return string
 
-	@property
-	def is_executable(self) -> bool:
-		"""Whether this filter can be executed locally."""
-		if not self.operator.is_executable:
-			return False
-		for operand in self.operands:
-			try:
-				if not operand.is_executable:
-					return False
-			except AttributeError:
-				# TODO and what if the operand is not "readable" (e.g. duration literal)?
-				continue
-		return True
-
-	def execute(self, item) -> bool:
+	def execute(self, context: "FilterExecutionContext") -> bool:
 		"""Execute the filter for the given item, return True if the filter matches.
 
 		# TODO write more about usage and requirements...
 		"""
 		# TODO implement
+
+	def execute_many(self, context: Optional["FilterExecutionContext"] = None) -> Callable[[Mapping], bool]:
+		"""Get a filter function to execute this filter for many items.
+
+		# TODO explain more.
+		"""
+		# TODO implement
+
+
+class FilterExecutionContext(collections.abc.MutableMapping):
+	"""A context looking up variables/constants/functions etc. needed for filter execution."""
+
+	# TODO add/improve docstring(s)
+
+	def __getitem__(self, key):
+		"""Lookup an item in this context."""
+		# TODO implement lookup
+		raise KeyError(f"Unable to find key {key} in context")
+
+	def __setitem__(self, key, value):
+		...  # TODO implement
+
+	def __delitem__(self, key):
+		...  # TODO implement
+
+	def __len__(self) -> int:
+		...  # TODO implement
+
+	def __iter__(self) -> Iterator:
+		...  # TODO implement
+
+	def __str__(self):
+		...  # TODO implement
