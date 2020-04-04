@@ -234,7 +234,7 @@ def test_operator_basics():
 	def func(*args):
 		return args
 
-	o = Operator("##", Operator.Type.COMPARISON, func)
+	o = Operator("##", Operator.Type.COMPARISON, 1, func)
 	assert o.symbol == "##"
 	assert str(o) == "##"
 	assert o.operate is func
@@ -249,7 +249,7 @@ def test_operator_basics():
 
 	assert o.operate(0, 1, 2) == (0, 1, 2)
 
-	assert o == Operator("##", Operator.Type.COMPARISON, func)
+	assert o == Operator("##", Operator.Type.COMPARISON, 1, func)
 	assert o != 1
 
 
@@ -326,22 +326,28 @@ def test_operator_print_method():
 
 # TODO add filter to str test
 
-@pytest.mark.parametrize("string", (
-		"a.b == 1",
-		"a.b(1)",
-		"fun(c.d, 1)",
-		"!a.b",
-		"a.method(1, 2, 3)",
-		"fun((a.b == 1), 2)",
-		"(a.b(1, 2)) == 3",
+@pytest.mark.parametrize("string, string2", (
+		("a.b==1", "(a.b)==(1)"),
+		("a.b(1)", "(a.b(1))"),
+		("fun(a.b==0, 1)", "fun((a.b==0), 1)"),
+		("!a.b && c.d", "(!(a.b))&&(c.d)"),
+		("fun1(1, fun2(2, 3))", "(fun1(1, (fun2(2, 3))))"),
+		("a.b(1, 2, fun(c, 3))==4", "(a.b(1, 2, (fun(c, 3))))==4"),
+		("a==0 && b==1 && c==2", "((a==0)&&(b==1))&&(c==2)"),
 		# Maxi test string...
-		"(a.b == c.d)&&(e.f.g(hi, j)||kl(m.n, !o.p, ~q.r)||s.t) && (u.v[0] < 1)",
+		(
+				"a.b==c.d ||(e.f.g(hi,j)&&kl(m.n,!o.p,q.r)&&s.t)||u.v<1",
+				"(a.b==c.d)||(e.f.g(hi,j)&&kl(m.n,!o.p,q.r)&&s.t)||(u.v<1)"
+		)
 ))
-def test_filter_fromstring(string):
+def test_filter_fromstring(string, string2):
 	"""Test Filter.form_string()."""
+	obj = Filter.from_string(string)
+	obj2 = Filter.from_string(string2)
+	fstring = str(obj).replace(" ", "")
 	# Spacing is allowed to be different
-	assert str(Filter.from_string(string)).replace(" ", "") == string.replace(" ", "")
+	assert fstring == string.replace(" ", "")
+	assert str(obj2).replace(" ", "") == fstring
 
-# TODO add filter executable test
 
-# TODO add filter parse test
+# TODO add filter execution test

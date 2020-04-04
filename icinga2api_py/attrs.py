@@ -494,7 +494,7 @@ class Operator:
 	#: Translate operator string -> Operator object
 	_OPERATOR_TRANSLATION = dict()
 
-	def __init__(self, symbol, type_: Type, precedence: int = 99, func: Optional[Callable] = None):
+	def __init__(self, symbol, type_: Type, precedence: Optional[int] = None, func: Optional[Callable] = None):
 		symbol = str(symbol)
 		# Check symbol for compliance
 		if not type_.pattern.match(symbol):
@@ -504,7 +504,7 @@ class Operator:
 		#: Type of this operator
 		self.type = type_
 		#: Precedence of this operator
-		self.precedence = precedence
+		self.precedence = precedence or (10 if type_.call else 99)
 		#: Function that executes the operation
 		self.operate = func
 
@@ -546,7 +546,8 @@ class Operator:
 			"""Generator to get operands in usable form."""
 			for operand in operands:
 				string = str(operand)
-				if isinstance(operand, Filter):
+				# Precedence paranthesis (but not for method/function call parameters)
+				if isinstance(operand, Filter) and operand.operator.precedence > self.precedence and not self.type.call:
 					string = f"({string})"
 				yield string
 
@@ -640,8 +641,8 @@ class Filter(Operand):
 	#: 1. Opening parenthesis that follow an alphanumeric char
 	#: 2. Closing parenthesis
 	#: 3. Any alphanumeric char or . or [ or ]
-	#: 4. Everything else that is not space
-	_CHAR_GROUPING = re.compile(r"((?<![\w])[(])|((?<=[\w])[(])|(\))|([\w.\[\]]+)|([^\w.\s()]+)")
+	#: 4. Everything else that is not space (single commas, or multiple chars of something else)
+	_CHAR_GROUPING = re.compile(r"((?<![\w])[(])|((?<=[\w])[(])|(\))|([\w.\[\]]+)|(,|[^\w.\s()]+)")
 
 	def __init__(
 				self,
@@ -672,14 +673,15 @@ class Filter(Operand):
 		attribute = Attribute.ensure_type(attribute)
 		return cls(operator, (attribute, value))
 
-	# TODO implement parsing Icinga filters
-
 	# TODO implement simple object-oriented creation of such Filter objects
 
 	@classmethod
 	def from_string(cls, string: str) -> "Filter":
 		"""Parse string and create filter for it."""
-		return cls._from_list(cls._to_group_split(string))
+		try:
+			return cls._from_list(cls._to_group_split(string))
+		except (IndexError, ValueError):
+			raise FilterParsingError(f"Failed to parse filter: {string}")
 
 	@classmethod
 	def _to_group_split(cls, string: str) -> Sequence:
@@ -712,7 +714,7 @@ class Filter(Operand):
 					cur.append(operator)
 				except KeyError:
 					# No such operator...
-					cur.append(ValueOperand(chars[4]))  # TODO think about what to do in this case...
+					cur.append(ValueOperand(chars[4]))
 
 		return res
 
@@ -732,19 +734,21 @@ class Filter(Operand):
 			if call:
 				call = False
 				# Previous item was call operator, current is the comma-separated parameter list
-				parameters = list()
-				last_comma = 0
+				parameters = [list()]
 				for i, item in enumerate(sub):
 					if isinstance(item, ValueOperand) and item.value == ",":
-						param = parameters[last_comma:]
-						del parameters[last_comma:]
-						param = cls._from_list(param)
-						parameters.append(param)
-						last_comma = len(parameters)
-					elif hasattr(item, "__iter__"):
-						parameters.append(cls._from_list(item))
+						parameters.append(list())
+					# elif hasattr(item, "__iter__"):
+					# 	parameters.append(cls._from_list(item))
 					else:
-						parameters.append(item)
+						parameters[-1].append(item)
+				# Convert to filter when multiple things have been between two commas
+				for i, item in enumerate(parameters):
+					if len(item) == 1 and not hasattr(item, "__iter__"):
+						# Something like a single ValueOperand
+						parameters[i] = item[0]
+					else:
+						parameters[i] = cls._from_list(item)
 				if lst[index - 1].type.pos:
 					# Method operator: <operand>.<method>(<parameters>)
 					operator = prepared.pop(-1)
@@ -793,12 +797,12 @@ class Filter(Operand):
 				if operator.type.minimum_operands == 1:
 					# <operand><operator>
 					operand = lst.pop(i - 1)
-					lst[-1] = cls(operator, (operand,))
+					lst[i] = cls(operator, (operand,))
 				else:
 					# <operand1><operator><operand2>
 					operand2 = lst.pop(i + 1)
 					operand1 = lst.pop(i - 1)
-					lst[-1] = cls(operator, (operand1, operand2))
+					lst[i-1] = cls(operator, (operand1, operand2))
 			else:
 				# Operator before operand
 				operand = lst.pop(i + 1)
