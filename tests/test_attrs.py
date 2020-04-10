@@ -350,7 +350,7 @@ def test_filter_fromstring(string, string2):
 	assert str(obj2).replace(" ", "") == fstring
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def context():
 	"""FilterExecutionContext object."""
 	o = FilterExecutionContext()
@@ -358,6 +358,7 @@ def context():
 	o["a"] = [0, 1]
 	o["d"] = {"b": 2, "c": 3}
 	o["e"] = 5
+	o["z"] = 6
 	return o
 
 
@@ -366,6 +367,14 @@ def test_context(context):
 	assert context["double"](2) == 4
 	assert context["e"] == 5
 	assert context["d.c"] == 3
+	context["z.a"] = 2
+	assert context["z.a"] == 2
+
+
+def test_context_update(context):
+	"""Test FilterExecutionContext.update()."""
+	context.update({"z.x": {"y.z": 6}})
+	assert context["z.x.y.z"] == context["z"]["x"]["y"]["z"] == 6
 
 
 def test_context_merge(context):

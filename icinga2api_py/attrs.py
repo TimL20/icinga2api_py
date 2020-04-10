@@ -8,7 +8,7 @@ import abc
 import collections.abc
 import enum
 import logging
-from typing import Union, Optional, Any, Sequence, Iterable, Generator, Iterator, Callable, Mapping
+from typing import Union, Optional, Any, Sequence, Iterable, Generator, Iterator, Callable, Mapping, MutableMapping
 import operator as op
 import re
 
@@ -829,26 +829,105 @@ class Filter(Operand):
 
 
 class FilterExecutionContext(collections.abc.MutableMapping):
-	"""A context looking up variables/constants/functions etc. needed for filter execution."""
+	"""A context looking up variables/constants/functions etc. needed for filter execution.
 
-	# TODO add/improve docstring(s)
+	Set and lookup of keys can use the dot-syntax to address values of sub-mappings (mappings as values).
+
+	The context is split into a primary and a secondary lookup dictionary.
+	The context methods allow modification of individual parts of the primary dict, but the secondary dict can only be
+	modified as a whole via the :attr:`secondary` property. The secondary is not modified within this class, it's only
+	used for lookup. Note however, that the lookup expects the secondary dict to have mappings as values when the
+	dot-syntax is used for lookup, but this class won't ensure that the secondary dict has this structure.
+	On lookup the primary dict has precedence.
+	"""
+
+	def __init__(self, primary: Optional[Mapping] = None, secondary: Optional[Mapping] = None):
+		self._primary = dict()
+		if primary:
+			self.update(primary)
+		self._secondary = secondary or dict()
+
+	def update(self, mapping: Mapping, **kwargs) -> None:
+		"""Update the primary lookup dictionary with a key-value mapping.
+
+		This method takes care of splitting keys on dots, also recursively for mapping-values.
+		"""
+		for key, value in mapping.items():
+			mapping, key = self._split_helper(self._primary, key, new=True, override=True)
+			self._update(mapping, key, value)
+
+	def _update(self, base: MutableMapping, key, update):
+		"""Update base mapping with update for key."""
+		if not isinstance(update, collections.abc.Mapping):
+			# Set value for key and
+			base[key] = update
+			return
+
+		base[key] = dict()
+		for subkey, value in update.items():
+			mapping, subkey = self._split_helper(base[key], subkey, new=True, override=True)
+			self._update(mapping, subkey, value)
+
+	@property
+	def secondary(self):
+		"""Secondary lookup dict."""
+		return self._secondary
+
+	@secondary.setter
+	def secondary(self, secondary: Mapping):
+		"""Set the secondary lookup dict, which is not modified within this class."""
+		self._secondary = secondary
+
+	@staticmethod
+	def _split_helper(mapping, key, new=False, override=False):
+		"""Helper for dot-syntax accessing of a mapping, optionally creates new sub-mappings."""
+		# TODO something like this is not only used in this module, so maybe move it to somewhere else
+		if new and override:
+			def get():
+				mapping[subkey] = dict()
+				return mapping[subkey]
+		elif new:
+			def get():
+				return mapping.setdefault(subkey, dict())
+		else:
+			def get():
+				return mapping[subkey]
+
+		key = key.split(".")
+		for subkey in key[:-1]:
+			mapping = get()
+		return mapping, key[-1]
 
 	def __getitem__(self, key):
 		"""Lookup an item in this context."""
-		# TODO implement lookup
-		raise KeyError(f"Unable to find key {key} in context")
+		try:
+			mapping, last = self._split_helper(self._primary, key)
+			return mapping[last]
+		except (KeyError, TypeError):
+			try:
+				mapping, last = self._split_helper(self._primary, key)
+				return mapping[last]
+			except (KeyError, TypeError):
+				raise KeyError(f"Unable to find key {key} in context")
 
 	def __setitem__(self, key, value):
-		...  # TODO implement
+		"""Set context lookup entry key to value, adds if doesn't exist."""
+		mapping, key = self._split_helper(self._primary, key, new=True, override=True)
+		mapping[key] = value
 
 	def __delitem__(self, key):
-		...  # TODO implement
+		"""Delete one item."""
+		try:
+			mapping, last = self._split_helper(self._primary, key)
+			del mapping[key]
+		except (KeyError, TypeError):
+			raise KeyError(f"No key {key} in context")
 
 	def __len__(self) -> int:
-		...  # TODO implement
+		"""Returns a number for the length of the lookup dicts; but this is not the total number of their items."""
+		return len(self._primary) + len(self._secondary)
 
-	def __iter__(self) -> Iterator:
-		...  # TODO implement
-
-	def __str__(self):
-		...  # TODO implement
+	def __iter__(self):
+		"""A generator yielding all primary and secondary base items."""
+		yield from self._primary
+		yield from self._secondary
