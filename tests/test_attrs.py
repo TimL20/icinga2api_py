@@ -327,6 +327,7 @@ def test_operator_print_method():
 # TODO add filter to str test
 
 @pytest.mark.parametrize("string, string2", (
+		('a.b=="a.b"', 'a.b=="a.b"'),
 		("a.b==1", "(a.b)==(1)"),
 		("a.b(1)", "(a.b(1))"),
 		("fun(a.b==0, 1)", "fun((a.b==0), 1)"),
@@ -353,7 +354,7 @@ def test_filter_fromstring(string, string2):
 @pytest.fixture(scope="function")
 def context():
 	"""FilterExecutionContext object."""
-	o = FilterExecutionContext()
+	o = FilterExecutionContext(secondary={"s": 9})
 	o["double"] = lambda x: x*2
 	o["a"] = [0, 1]
 	o["d"] = {"b": 2, "c": 3}
@@ -367,6 +368,7 @@ def test_context(context):
 	assert context["double"](2) == 4
 	assert context["e"] == 5
 	assert context["d.c"] == 3
+	assert context["s"] == 9
 	context["z.a"] = 2
 	assert context["z.a"] == 2
 
@@ -377,9 +379,34 @@ def test_context_update(context):
 	assert context["z.x.y.z"] == context["z"]["x"]["y"]["z"] == 6
 
 
-def test_context_merge(context):
-	"""Test FilterExecutionContext.merge()."""
-	# TODO write test
+def test_context_with_secondary(context):
+	"""Test FilterExecutionContext.with_secondary()."""
+	secondary = {"e": 99, "t": 20}
+	obj = context.with_secondary(secondary)
+	assert obj["z"] == 6  # Test primary lookup
+	assert obj["e"] == 5  # Test that secondary does not override primary
+	assert obj["t"] == 20  # Test secondary lookup
+	with pytest.raises(KeyError):
+		_ = obj["s"]  # Old secondary gone
 
 
-# TODO add filter execution test
+@pytest.mark.parametrize("string, context, res", (
+		# Without context
+		('1==1', None, True),
+		('1==2', None, False),
+		('1=="2"', None, False),
+		('1==1 && 2==2', None, True),
+		('1==2 && 2==2', None, False),
+
+		# With context
+		("a==1", {"a": 1}, True),
+		("a==1", {"a": 2}, False),
+		("a==1", {"a": "1"}, False),
+		('(a.b==1 && b.c=="2") || (c.d==3)', {"a.b": 1, "b.c": "2", "c.d": 0}, True),
+		('(a.b==1 && b.c=="2") || (c.d==3)', {"a.b": 0, "b.c": 0, "c.d": 3}, True),
+		('(a.b==1 && b.c=="2") || (c.d==3)', {"a.b": 1, "b.c": 2, "c.d": 0}, False),
+))
+def test_string_execution(string, context, res):
+	"""Test filter string execution."""
+	context = FilterExecutionContext(context)
+	assert Filter.from_string(string).execute(context) == res

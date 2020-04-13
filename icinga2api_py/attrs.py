@@ -12,7 +12,7 @@ from typing import Union, Optional, Any, Sequence, Iterable, Generator, Iterator
 import operator as op
 import re
 
-from .exceptions import AttributeParsingError, FilterParsingError, FilterExecutionError
+from .exceptions import AttributeParsingError, FilterParsingError, LiteralExecutionError, FilterExecutionError
 
 LOGGER = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ SPECIAL_ATTRIBUTE_KEYS = set((item.value for item in _PrimaryAttribute if item.v
 #: Patterns for Icinga literals + converter callables (or None if not converted)
 _LITERAL_PATTERNS = (
 	# String literals
-	(re.compile(r'".*"'), None),
+	(re.compile(r'".*"'), lambda s: s[1:-1]),
 	# Boolean literals
 	(re.compile(r"true"), lambda _: True), (re.compile(r"false"), lambda _: False),
 	# Null/None
@@ -44,10 +44,10 @@ _LITERAL_PATTERNS = (
 	(re.compile(r"{.*}"), None),
 	# Array literals (not parsed as an operand)
 	(re.compile(r"\[.*\]"), None),
-	# Duration literals
-	(re.compile(r"[-+]?((\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?(ms|s|m|h|d)?)+"), None),
 	# Number literals (exponents are not mentioned in Icinga docs)
 	(re.compile(r"[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?"), float),
+	# Duration literals
+	(re.compile(r"[-+]?((\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?(ms|s|m|h|d)?)+"), None),
 )
 
 
@@ -93,14 +93,18 @@ class Operand(abc.ABC):
 class ValueOperand(Operand):
 	"""Value used for an operation."""
 	def __init__(self, value):
+		if not isinstance(value, str):
+			value = str(value)
 		self.value = value
 
-	def is_possible_attribute(self) -> bool:
-		"""Whether this operand could possibly be an attribute."""
-		try:
-			return self.possible_attribute(self.value)
-		except TypeError:
-			return False  # In case the value is not a string
+	def execute(self):
+		"""Literal execution."""
+		for pattern, converter in _LITERAL_PATTERNS:
+			if pattern.fullmatch(self.value):
+				if converter is not None:
+					return converter(self.value)
+				break
+		raise LiteralExecutionError(f"Unable to execute literal {self.value}")
 
 	@classmethod
 	def create_with_type(cls, value):
@@ -113,7 +117,7 @@ class ValueOperand(Operand):
 			return value
 
 	def __str__(self):
-		return str(self.value)
+		return self.value
 
 	def __repr__(self):
 		return f"<{self.__class__.__name__} {repr(self.value)}>"
@@ -601,20 +605,20 @@ class BuiltinOperator(Operator, enum.Enum):
 class Filter(Operand):
 	"""Represents an Icinga filter.
 
-	- Simple filters consist of: attribute, operator, value   # TODO check whether something like 1==1 is possible
-		- Simple filters are joined with logical operators (&&, ||)
-		- Simple comparative operators compare an values of the specified attribute to the specified value
-		- But methods for attriute objects are also allowed (e.g. contains on a dictionary)
+	- Filters have at minimum one operand and one operator
+		- It's possible to use filters as operands for more complex filters (usually joined with logical operators)
+		- Simple comparative operators compare the values of their two operands (==, !=, <, ...)
+		- Unary operators operate (obviously) on one operand (!, ~)
+		- Another operation is a method call on an attribute
 			- Fully implementing that without using IOM is at least very difficult, if not impossible
 			- An implementation that is at least better (not necessarily complete) can be done with IOM
-		- Also global functions taking attribute values are possible to use in filters, e.g. match, regex, typeof, ...
+		- Similar to methods, the use of global functions is also allowed, e.g. match, regex, typeof, ...
 			- It seems to be possible to add global functions via configuration
 			- This seems therefore impossible to fully implement
-		- Additionally there are unary operators
 		- And also there is the possibility that there is no operator at all, in this case it's similar to Python's
 			automatic bool() interpretation in if-clauses (e.g. empty strings are False), but also checks whether this
 			attribute is defined (True if defined, False if not)
-	- Nesting any filters with explicit precedence is possible
+	- Nesting any filters with explicit precedence (using parenthesis) is possible
 
 	Taking these things into account, it is at least *very, very* difficult to implement filters in a way, that this
 	library can fully emulate the filtering of Icinga; it propably is impossible. That why, it is foolish to try, so
@@ -622,12 +626,14 @@ class Filter(Operand):
 	Filtering must be done by Icinga itself, no matter what is done here.
 
 	The first goal of this class is to understand what is done with a filter at a certain level:
-	- Which attributes are involved in filtering?
-	- What kind of operator is used for which attribute (simple, method, function)?
+
+	- The structure of the filter
+	- What is an operator, what are its operands
 
 	The second goal is to create Icinga-compliant filter string using this class:
+
 	- Syntactical correct, but without really looking at semantics
-	- Implementing all operators, nesting filters with precedence, using attributes with Attribute objects
+	- Implementing all "simple" operators, nesting filters with precedence, using attributes with Attribute objects
 
 	This class implements both nested filters and simple filters. Nested filters are created by passing an operator and
 	a list of filter objects as subfilters. Simple filters are created by passing an operator, an attribute and a value.
@@ -640,9 +646,9 @@ class Filter(Operand):
 	#: 0. Opening parenthesis that don't follow an alphanumeric char
 	#: 1. Opening parenthesis that follow an alphanumeric char
 	#: 2. Closing parenthesis
-	#: 3. Any alphanumeric char or . or [ or ]
+	#: 3. Any alphanumeric char or . or [ or ] or "
 	#: 4. Everything else that is not space (single commas, or multiple chars of something else)
-	_CHAR_GROUPING = re.compile(r"((?<![\w])[(])|((?<=[\w])[(])|(\))|([\w.\[\]]+)|(,|[^\w.\s()]+)")
+	_CHAR_GROUPING = re.compile(r"((?<![\w])[(])|((?<=[\w])[(])|(\))|([\w.\[\]\"]+)|(,|[^\w.\s()\[\]\"]+)")
 
 	def __init__(
 				self,
@@ -816,16 +822,43 @@ class Filter(Operand):
 	def execute(self, context: "FilterExecutionContext") -> bool:
 		"""Execute the filter for the given item, return True if the filter matches.
 
-		# TODO write more about usage and requirements...
+		Execution may or may not succeed, depending on operator and operands of this filter and on the lookup context.
+		The lookup context is used, whenever a non-filter operand turned out to be not executable locally.
 		"""
-		# TODO implement
+		# TODO implement recognizing attributes for lookup
+		# TODO refactor this code...
+		operands = list()
+		for operand in self.operands:
+			try:
+				if isinstance(operand, Filter):
+					operands.append(operand.execute(context))
+				else:
+					operands.append(operand.execute())
+			except (AttributeError, LiteralExecutionError):
+				if isinstance(operand, Filter):
+					raise FilterExecutionError("Unable to execute filter")
+				try:
+					operands.append(context[operand])
+				except KeyError:
+					raise FilterExecutionError("Unable to interpret operand, and context lookup failed.")
+		try:
+			return self.operator.operate(*operands)
+		except TypeError:
+			raise FilterExecutionError("Operator not executable")
 
 	def execute_many(self, context: Optional["FilterExecutionContext"] = None) -> Callable[[Mapping], bool]:
 		"""Get a filter function to execute this filter for many items.
 
-		# TODO explain more.
+		This method was introduced for use of the returned callable in a Python filter statement as a filter function.
+		The context given here is expected to only have a primary context, and the objects for which the filter function
+		is applied are used as the secondary context.
+		:meth:`execute` is used for filter execution with the resulting context.
 		"""
-		# TODO implement
+		def execute(mapping) -> bool:
+			"""Execute a filter function."""
+			return self.execute(context.with_secondary(mapping))
+
+		return execute
 
 
 class FilterExecutionContext(collections.abc.MutableMapping):
@@ -878,6 +911,16 @@ class FilterExecutionContext(collections.abc.MutableMapping):
 		"""Set the secondary lookup dict, which is not modified within this class."""
 		self._secondary = secondary
 
+	def with_secondary(self, secondary: Mapping) -> "FilterExecutionContext":
+		"""Return a new FilterExecutionContext with the existing primary and the given secondary.
+
+		Note that the used primary lookup dict is exactly the same, it's not copied!
+		"""
+		obj = self.__class__()
+		obj._primary = self._primary
+		obj._secondary = secondary
+		return obj
+
 	@staticmethod
 	def _split_helper(mapping, key, new=False, override=False):
 		"""Helper for dot-syntax accessing of a mapping, optionally creates new sub-mappings."""
@@ -900,19 +943,20 @@ class FilterExecutionContext(collections.abc.MutableMapping):
 
 	def __getitem__(self, key):
 		"""Lookup an item in this context."""
+		key = str(key)
 		try:
 			mapping, last = self._split_helper(self._primary, key)
 			return mapping[last]
 		except (KeyError, TypeError):
 			try:
-				mapping, last = self._split_helper(self._primary, key)
+				mapping, last = self._split_helper(self._secondary, key)
 				return mapping[last]
 			except (KeyError, TypeError):
 				raise KeyError(f"Unable to find key {key} in context")
 
 	def __setitem__(self, key, value):
 		"""Set context lookup entry key to value, adds if doesn't exist."""
-		mapping, key = self._split_helper(self._primary, key, new=True, override=True)
+		mapping, key = self._split_helper(self._primary, str(key), new=True, override=True)
 		mapping[key] = value
 
 	def __delitem__(self, key):
