@@ -35,7 +35,7 @@ TEST_DATA = (
 		"joined": "joins.jointype.x",
 	},
 	{  # 2
-		"init_args": ("attrs.x", False, "otype"),
+		"init_args": ("attrs.x", "otype"),
 		"awareness": True,
 		"string": "attrs.x",
 		"icinga": "otype.x",
@@ -59,7 +59,7 @@ TEST_DATA = (
 		"object_joined": "joins.otype.x",
 	},
 	{  # 5
-		"init_args": ("otype.x", False, "otype"),
+		"init_args": ("otype.x", "otype"),
 		"awareness": True,
 		"string": "attrs.x",
 		"icinga": "otype.x",
@@ -81,7 +81,7 @@ TEST_DATA = (
 		"joined": "joins.jointype.x",
 	},
 	{  # 8
-		"init_args": ("joins.jtype.x", False, "otype"),
+		"init_args": ("joins.jtype.x", "otype"),
 		"awareness": True,
 		"string": "joins.jtype.x",
 		"icinga": "jtype.x",
@@ -105,15 +105,13 @@ TEST_DATA = (
 		"object_joined": "joins.otype",
 	},
 	{  # 11
-		"init_args": ("otype", False, "otype"),
+		"init_args": ("otype", "otype"),
 		"awareness": True,
 		"string": "attrs",
 		"icinga": "otype",
 		"joined": "joins.jointype",
 		"object_joined": "joins.otype",
 	},
-	# Unusual testdata (inputs not as expected), to test how the functionality deals with it...
-	# TODO add Edge case: both aware and object_type are set; one must have precedence
 )
 IDS = [f"{i}:{d['string']}" for i, d in enumerate(TEST_DATA)]
 

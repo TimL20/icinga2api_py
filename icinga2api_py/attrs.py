@@ -18,11 +18,9 @@ LOGGER = logging.getLogger(__name__)
 
 __all__ = ["Attribute", "AttributeSet", "Operator", "Filter"]
 
-# TODO clarify naming of "Primary key" / "primary attribute" (and others)
 
-
-class _PrimaryAttribute(enum.Enum):
-	"""The primary attribute key."""
+class _LeadKey(enum.Enum):
+	"""The leading attribute key."""
 
 	ATTRS = "attrs"
 	JOINS = "joins"
@@ -30,7 +28,7 @@ class _PrimaryAttribute(enum.Enum):
 
 
 #: The special attribute keys that are handled in parsing and are therfore illegal or ignored in some places
-SPECIAL_ATTRIBUTE_KEYS = set((item.value for item in _PrimaryAttribute if item.value is not None))
+SPECIAL_ATTRIBUTE_KEYS = set((item.value for item in _LeadKey if item.value is not None))
 
 #: Patterns for Icinga literals + converter callables (or None if not converted)
 _LITERAL_PATTERNS = (
@@ -156,6 +154,8 @@ class Attribute(Operand):
 	This is called "awareness" here.
 	A full attribute description needs the object's type for which it is describing an attribute (= it is
 	"object_type_aware"). On the other hand, in many cases the type might not be known or irrelevant.
+	The object type can be given as a string with the object_type init argument, or setting it to True if the
+	description contains the object type.
 
 	When initiating an Attribute object, there are three arguments to care about. You may have a look at the
 	tests/test_attrs module, which extensively tests init arguments in different combinations.
@@ -164,15 +164,14 @@ class Attribute(Operand):
 
 	:param descr: Attribute description. By default the result path notation is assumed, except for when aware is set\
 					to True.
-	:param aware: Whether the first part of the passed descr is the object_type. False by default. Setting this to True\
-					is roughly equivalent to setting object_type=descr[:descr.index('.')]
-	:param object_type: The object type this attribute describes an attribute of.
+	:param object_type: The object type this attribute describes an attribute of as a string, or True to read the type
+					from the description (roughly equivalent to `object_type=descr[:descr.index('.')]`)
 	"""
 
-	__slots__ = ("_primary_key", "_join_type", "_attrs", "_object_type")
+	__slots__ = ("_lead_key", "_join_type", "_attrs", "_object_type")
 
 	#: Attributes considered for cloning and comparison
-	_object_attributes = ("_primary_key", "join_type", "attrs", "object_type")
+	_object_attributes = ("__lead_key", "join_type", "attrs", "object_type")
 
 	class Format(enum.Enum):
 		"""Attribute representation format."""
@@ -185,13 +184,13 @@ class Attribute(Operand):
 	def __init__(
 				self,
 				descr: Union[str, Iterable[str]],
-				aware: bool = False,
-				object_type: Optional[str] = None
+				object_type: Union[str, bool, None] = None
 			):
 		# Make sure the description is a list
 		try:
 			descr = descr.split('.')
 		except AttributeError:
+			# Assume that it's an iterable (already split at dots)
 			descr = list(descr)
 
 		# Get first item, check for too short descriptions
@@ -201,22 +200,34 @@ class Attribute(Operand):
 			raise AttributeParsingError("Invalid attribute description: too short")
 
 		# Defaults
-		#: Primary key: internally kept _PrimaryAttribute
-		self._primary_key = _PrimaryAttribute.NONE
+		#: Lead attribute: internally kept _LeadKey that preceeds everything else
+		self._lead_key = _LeadKey.NONE
 		#: Join type or None
 		self._join_type = None
 		#: List of (sub) attributes, possibly empty.
 		#: This is internally a list, but gets converted to a tuple for external usage (attrs property)
 		self._attrs = descr
+
+		try:
+			object_type = object_type.lower()
+		except AttributeError:
+			if object_type:
+				# Set awareness type by first description part
+				object_type = first
+
+		# Object type set, check that it's not a special key...
+		if object_type in SPECIAL_ATTRIBUTE_KEYS:
+			object_type = None
+
 		#: For which type of an object the attribute description was created, or None if not aware of an object type.
 		#: An empty string or any special attribute keys are not valid object types.
-		self._object_type = object_type.lower() if object_type and object_type not in SPECIAL_ATTRIBUTE_KEYS else None
+		self._object_type = object_type
 
 		# Get first+descr into these variables
 		if first == "attrs":
-			self._primary_key = _PrimaryAttribute.ATTRS
+			self._lead_key = _LeadKey.ATTRS
 		elif first == "joins":
-			self._primary_key = _PrimaryAttribute.JOINS
+			self._lead_key = _LeadKey.JOINS
 			try:
 				self._join_type = descr.pop(0).lower()
 				self._attrs = descr
@@ -224,11 +235,7 @@ class Attribute(Operand):
 				raise AttributeParsingError("Invalid attribute description: join but no joined type")
 		elif object_type and first == object_type:
 			# The first item is the object type
-			self._primary_key = _PrimaryAttribute.ATTRS
-		elif aware and first not in SPECIAL_ATTRIBUTE_KEYS:
-			# The first item is assumed to be the object type
-			self._primary_key = _PrimaryAttribute.ATTRS
-			self._object_type = first
+			self._lead_key = _LeadKey.ATTRS
 		else:
 			self._attrs = [first, *descr]
 
@@ -236,15 +243,15 @@ class Attribute(Operand):
 
 	@classmethod
 	def _plain_init(
-				cls, primary_key: _PrimaryAttribute, join_type: Optional[str], attrs: Sequence[str],
+				cls, lead_key: _LeadKey, join_type: Optional[str], attrs: Sequence[str],
 				object_type: Optional[str]
 			) -> "Attribute":
 		"""Init with the private attributes of such an object."""
 		# Build descr list
 		builder = list()
-		if primary_key != _PrimaryAttribute.NONE:
-			builder.append(primary_key.value)
-		if primary_key == _PrimaryAttribute.JOINS and join_type:
+		if lead_key != _LeadKey.NONE:
+			builder.append(lead_key.value)
+		if lead_key == _LeadKey.JOINS and join_type:
 			builder.append(join_type)
 		builder.extend(attrs)
 		return cls(builder, object_type=object_type)
@@ -254,10 +261,10 @@ class Attribute(Operand):
 		"""Ensure that obj is an Attrite object."""
 		if not isinstance(obj, cls):
 			if isinstance(obj, str):
-				return Attribute(obj, aware=("." in obj))
+				return Attribute(obj, ("." in obj))
 			else:
 				# Assume sequence
-				return Attribute(obj, aware=(len(obj) > 1))
+				return Attribute(obj, (len(obj) > 1))
 		return obj
 
 	@property
@@ -268,7 +275,7 @@ class Attribute(Operand):
 	@property
 	def join_type(self) -> Optional[str]:
 		"""Get join type if this attribute describes a joined type or something in a joined type, else None."""
-		if self._primary_key == _PrimaryAttribute.JOINS:
+		if self._lead_key == _LeadKey.JOINS:
 			return self._join_type
 		return None
 
@@ -279,8 +286,8 @@ class Attribute(Operand):
 		# Ensure not empty or None
 		if not join_type:
 			raise ValueError(f"Illegal join type: {join_type}")
-		# Return new object with correct primary key and joined type
-		return self._plain_init(_PrimaryAttribute.JOINS, join_type, self.attrs, self.object_type)
+		# Return new object with correct lead key and joined type
+		return self._plain_init(_LeadKey.JOINS, join_type, self.attrs, self.object_type)
 
 	@property
 	def object_type(self) -> Optional[str]:
@@ -308,7 +315,7 @@ class Attribute(Operand):
 			# If as_jointype and there is an old object_type (and it is not the same as the new one) and either there is
 			# no old join_type or the join_type should be overriden:
 			# Set old object_type as new join_type
-			return self._plain_init(_PrimaryAttribute.JOINS, self.object_type, self.attrs, object_type)
+			return self._plain_init(_LeadKey.JOINS, self.object_type, self.attrs, object_type)
 
 		attrs = self.attrs
 		try:
@@ -318,8 +325,8 @@ class Attribute(Operand):
 			pass
 		if self.join_type == object_type:
 			# Join type is new object type -> joins.<type> to attrs
-			return self._plain_init(_PrimaryAttribute.ATTRS, None, attrs, object_type)
-		return self._plain_init(self._primary_key, self.join_type, attrs, object_type)
+			return self._plain_init(_LeadKey.ATTRS, None, attrs, object_type)
+		return self._plain_init(self._lead_key, self.join_type, attrs, object_type)
 
 	@property
 	def attrs(self) -> Sequence[str]:
@@ -329,7 +336,7 @@ class Attribute(Operand):
 	def parent_attribute(self) -> Optional["Attribute"]:
 		"""Return a parent attribute if there is one."""
 		if self.attrs:
-			return self._plain_init(self._primary_key, self.join_type, self.attrs[:-1], self.object_type)
+			return self._plain_init(self._lead_key, self.join_type, self.attrs[:-1], self.object_type)
 		return None
 
 	def full_attrs(self, form: Format = Format.RESULTS) -> Generator[str, None, None]:
@@ -340,8 +347,8 @@ class Attribute(Operand):
 				yield type_
 			yield from self.attrs
 		else:
-			if self._primary_key != _PrimaryAttribute.NONE:
-				yield self._primary_key.value
+			if self._lead_key != _LeadKey.NONE:
+				yield self._lead_key.value
 			if self.join_type is not None:
 				yield self.join_type
 			yield from self.attrs
