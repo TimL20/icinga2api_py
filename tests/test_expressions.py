@@ -1,11 +1,30 @@
 # -*- coding: utf-8 -*-
 """
-Tests for the filters module.
+Tests for the expressions module.
 """
 
 import pytest
 
-from icinga2api_py.filters import Operator, Filter, FilterExecutionContext
+from icinga2api_py.expressions import ValueOperand, Operator, Filter, FilterExecutionContext
+
+
+@pytest.mark.parametrize("value, res, executed", (
+		('"a"', None, "a"),
+		("1", None, 1),
+		(1, "1", 1),
+		(.1, "0.1", .1),
+		(".1", None, .1),
+		("true", None, True),
+		("false", None, False),
+		("null", None, None),
+))
+def test_value_operand(value, res, executed):
+	"""Test ValueOperand."""
+	o = ValueOperand(value)
+	res = res or value
+	assert o.value == res
+
+	assert o.execute() == executed
 
 
 def test_operator_basics():
@@ -23,8 +42,9 @@ def test_operator_basics():
 	assert Operator.from_string("##") is o
 	assert o.register() is True
 	# Register returns False if not registered...
-	assert Operator("##", Operator.Type.COMPARISON, None).register() is False
-	assert o.register(True)
+	assert Operator("##", Operator.Type.COMPARISON).register() is False
+	# Except when forced
+	assert Operator("##", Operator.Type.COMPARISON).register(force=True) is True
 
 	assert o.operate(0, 1, 2) == (0, 1, 2)
 

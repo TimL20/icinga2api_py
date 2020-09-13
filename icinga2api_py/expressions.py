@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """This module implements parsing of Icinga filters.
 
-
+# TODO some of this code needs refactoring...
 """
 
 import abc
@@ -14,7 +14,7 @@ import re
 from .exceptions import FilterParsingError, LiteralExecutionError, FilterExecutionError
 
 
-__all__ = ["Operator", "Filter", "FilterExecutionContext"]
+__all__ = ["Expression", "Operator", "Filter", "FilterExecutionContext"]
 
 
 #: Patterns for Icinga literals + converter callables (or None if not converted)
@@ -22,6 +22,8 @@ _LITERAL_PATTERNS = (
 	# String literals
 	(re.compile(r'".*"'), lambda s: s[1:-1]),
 	# Boolean literals
+	# TODO A problem of this approach here (in general) is, that Python's True/False are not converted to Icinga's bool
+	# 	values correctly (because of lowercase)
 	(re.compile(r"true"), lambda _: True), (re.compile(r"false"), lambda _: False),
 	# Null/None
 	(re.compile(r"null"), lambda _: None),
@@ -30,14 +32,17 @@ _LITERAL_PATTERNS = (
 	# Array literals (not parsed as an operand)
 	(re.compile(r"\[.*\]"), None),
 	# Number literals (exponents are not mentioned in Icinga docs)
-	(re.compile(r"[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?"), float),
+	# Exponents are not metioned in the Icinga docs... # TODO test (or read source code), what does Icinga do?
+	# 	r"[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?" with exponents
+	(re.compile(r"[-+]?(\d+(\.\d*)?|\.\d+)"), float),
 	# Duration literals
-	(re.compile(r"[-+]?((\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?(ms|s|m|h|d)?)+"), None),
+	# TODO interpret duration literals, it's not that difficult...
+	(re.compile(r"[-+]?((\d+(\.\d*)?|\.\d+)(ms|s|m|h|d)?)+"), None),
 )
 
 
 class Expression(abc.ABC):
-	"""Operand: something on which an operation is performed."""
+	"""Abstract expression."""
 
 	@staticmethod
 	def possible_attribute(string: str) -> bool:
@@ -48,29 +53,29 @@ class Expression(abc.ABC):
 	def __str__(self):
 		return ""
 
-	def __eq__(self, other):
+	def __eq__(self, other) -> "Filter":
 		return self.filter(BuiltinOperator.EQ, other)
 
-	def __ne__(self, other):
+	def __ne__(self, other) -> "Filter":
 		return self.filter(BuiltinOperator.NE, other)
 
-	def __lt__(self, other):
+	def __lt__(self, other) -> "Filter":
 		"""Create a filter comparing this attribute to a value."""
 		return self.filter(BuiltinOperator.LT, other)
 
-	def __le__(self, other):
+	def __le__(self, other) -> "Filter":
 		"""Create a filter comparing this attribute to a value."""
 		return self.filter(BuiltinOperator.LE, other)
 
-	def __ge__(self, other):
+	def __ge__(self, other) -> "Filter":
 		"""Create a filter comparing this attribute to a value."""
 		return self.filter(BuiltinOperator.GE, other)
 
-	def __gt__(self, other):
+	def __gt__(self, other) -> "Filter":
 		"""Create a filter comparing this attribute to a value."""
 		return self.filter(BuiltinOperator.GT, other)
 
-	def filter(self, operator: "Operator", value):
+	def filter(self, operator: "Operator", value) -> "Filter":
 		"""Create a Filter object representing a simple filter for this object compared to a certain value."""
 		return Filter.simple(self, operator, value)
 
@@ -90,16 +95,6 @@ class ValueOperand(Expression):
 					return converter(self.value)
 				break
 		raise LiteralExecutionError(f"Unable to execute literal {self.value}")
-
-	@classmethod
-	def create_with_type(cls, value):
-		"""Create a ValueOperand guessing the correct type of value."""
-		try:
-			for pattern, converter in _LITERAL_PATTERNS:
-				if pattern.fullmatch(value):
-					return cls(converter(value))
-		except TypeError:
-			return value
 
 	def __str__(self):
 		return self.value
@@ -130,17 +125,23 @@ class Operator:
 	"""Operator used in filters."""
 
 	class Type(enum.IntEnum):
-		"""Type of Operator."""
+		"""Type of Operator.
+
+		Each bit has a meaning as follows (in LSBF order):
+		1) Whether the operator should (but not neccesarily must) be separated by spaces
+		2) Whether the operator is written after the first operand
+		3) Whether the operator is some type of function call
+		"""
 
 		#: Unary operators
 		UNARY = 0b000
-		#: Comparative operators
+		#: Comparative operators (e.g. a==b)
 		COMPARISON = 0b010
-		#: Non-unary logical operators
+		#: Non-unary logical operators (e.g. a||b)
 		LOGICAL = 0b011
-		#: Function
+		#: Function (e.g. len(a))
 		FUNCTION = 0b100
-		#: Method (executed *on* an attribute, not with)
+		#: Method (executed *on* an attribute, not with; e.g. dict.contains(e))
 		METHOD = 0b110
 
 		@property
@@ -292,7 +293,7 @@ class Filter(Expression):
 			- Fully implementing that without using IOM is at least very difficult, if not impossible
 			- An implementation that is at least better (not necessarily complete) can be done with IOM
 		- Similar to methods, the use of global functions is also allowed, e.g. match, regex, typeof, ...
-			- It seems to be possible to add global functions via configuration
+			- It is possible to add global functions via configuration
 			- This seems therefore impossible to fully implement
 		- And also there is the possibility that there is no operator at all, in this case it's similar to Python's
 			automatic bool() interpretation in if-clauses (e.g. empty strings are False), but also checks whether this
@@ -309,13 +310,13 @@ class Filter(Expression):
 	- The structure of the filter
 	- What is an operator, what are its operands
 
-	The second goal is to create Icinga-compliant filter string using this class:
+	The second goal is to create Icinga-compliant filter strings using this class:
 
 	- Syntactical correct, but without really looking at semantics
 	- Implementing all "simple" operators, nesting filters with precedence, using attributes with Attribute objects
 
-	This class implements both nested filters and simple filters. Nested filters are created by passing an operator and
-	a list of filter objects as subfilters. Simple filters are created by passing an operator, an attribute and a value.
+	This class implements both nested filters and simple filters. Both are created by passing an operator and its
+	operands. The operands can be Expression objects (e.g. Filter objects) themselves, or values.
 
 	:param operator: The operator used in this filter.
 	:param operands: Operands.

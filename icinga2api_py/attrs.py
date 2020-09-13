@@ -9,7 +9,7 @@ import enum
 from typing import Union, Optional, Sequence, Iterable, Generator, Iterator
 
 from .exceptions import AttributeParsingError
-from .filters import Expression, Filter
+from .expressions import Expression, Filter
 
 __all__ = ["Attribute", "AttributeSet"]
 
