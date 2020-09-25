@@ -1,7 +1,59 @@
 # -*- coding: utf-8 -*-
 """This module implements parsing of Icinga filters.
 
-# TODO some of this code needs refactoring...
+Written with a glance on https://github.com/Icinga/icinga2/blob/master/lib/config/expression.hpp
+and https://github.com/Icinga/icinga2/blob/master/lib/config/expression.cpp
+
+Expressions can come very different:
+	- Expressions can be joined to more complex expressions, usually with a logical operator
+	- Simple comparative operators compare the values of their two operands (==, !=, <, ...)
+	- Unary operators operate (obviously) on one operand (!, ~)
+	- Another operation is a method call on an attribute
+		- Fully implementing that without using IOM is at least very difficult, if not impossible
+		- An implementation that is at least better (not necessarily complete) can be done with IOM
+	- Similar to methods, the use of global functions is also allowed, e.g. match, regex, typeof, ...
+		- It is possible to add global functions via configuration
+		- This seems therefore impossible to fully implement
+	- And also there is the possibility that there is no operator at all, in this case it's similar to Python's
+		automatic bool() interpretation in if-clauses (e.g. empty strings are False), but also checks whether this
+		attribute is defined (True if defined, False if not)
+- Nesting any filters with explicit precedence (using parenthesis) is possible
+
+Taking these things into account, it is at least *very, very* difficult to implement expressions in a way, that
+this library can fully emulate the expressions of Icinga; it's propably impossible. That why, it is foolish to try, so
+this is not the goal of this class or module, or even of this library.
+The real stuff must be done by Icinga itself, no matter what is implemented here.
+
+This library mainly only cares of "filters" anyway. A filter is an expression that at least evaluates to one literal,
+that can be used in a boolean context. The evaluation can/should use attributes of an object, so that the filter can
+evaluate to different results for different objects. However this is not mandatory, a filter could also always evaluate
+to True or False without taking object attributes into account.
+
+The first goal of this module is to understand what is done with a filter at a certain level:
+
+- The structure of the filter
+- What is an operator, what are its operands
+- Evaluate filters that only use "simple" operators
+	- There is no definition of "simple"
+	- And, or, == and != are definitely simple
+
+The second goal is to create Icinga-compliant filter strings in an OOP-manner
+
+- Syntactical correct, but without really looking at semantics
+- Implementing all "simple" operators, nesting filters with precedence, using attributes with Attribute objects
+
+This class implements both nested filters and simple filters. Both are created by passing an operator and its
+operands. The operands can be Expression objects (e.g. Filter objects) themselves, or values.
+
+The following things are currently not implemented and have no note to get implemented:
+- Assignment, definition of objects/variables/functions/...
+- Reference/Dereference operations (&/*)
+- Bit operation (Bit-Or/And/XOR, ,,,, Shifting, ...)
+- In / not in Operator
+- Dictionary expressions
+- Conditional expressions (incl. lambda)
+- Loops
+- Imports, Exceptions, Apply rules, namespaces, Library expression, Include expression, Try-except expression
 """
 
 import abc
@@ -11,10 +63,199 @@ from typing import Union, Optional, Any, Sequence, Iterable, Generator, Callable
 import operator as op
 import re
 
-from .exceptions import FilterParsingError, LiteralExecutionError, FilterExecutionError
+from .exceptions import ExpressionParsingError, ExpressionEvaluationError
 
 
-__all__ = ["Expression", "Operator", "Filter", "FilterExecutionContext"]
+class Expression(abc.ABC):
+	"""Abstract expression."""
+
+	def __init__(self, symbol):
+		self.symbol = symbol
+
+	def __str__(self):
+		"""Expression to string."""
+		return self.symbol
+
+	@abc.abstractmethod
+	def evaluate(self, context: Mapping):
+		raise ExpressionEvaluationError()
+
+	@classmethod
+	@abc.abstractmethod
+	def from_string(cls, string):
+		"""Construct such an expression from a string."""
+		raise ExpressionParsingError()
+
+	def __eq__(self, other) -> "OperatorExpression":
+		return self.compose(BuiltinOperator.EQ, other)
+
+	def __ne__(self, other) -> "OperatorExpression":
+		return self.compose(BuiltinOperator.NE, other)
+
+	def __lt__(self, other) -> "OperatorExpression":
+		"""Create a filter comparing this attribute to a value."""
+		return self.compose(BuiltinOperator.LT, other)
+
+	def __le__(self, other) -> "OperatorExpression":
+		"""Create a filter comparing this attribute to a value."""
+		return self.compose(BuiltinOperator.LE, other)
+
+	def __ge__(self, other) -> "OperatorExpression":
+		"""Create a filter comparing this attribute to a value."""
+		return self.compose(BuiltinOperator.GE, other)
+
+	def __gt__(self, other) -> "OperatorExpression":
+		"""Create a filter comparing this attribute to a value."""
+		return self.compose(BuiltinOperator.GT, other)
+
+	def compose(self, operator: "Operator", value) -> "OperatorExpression":
+		return OperatorExpression(operator, self, value)
+
+
+class LiteralExpression(Expression):
+	"""A literal."""
+
+	def __init__(self, symbol, value):
+		super().__init__(symbol)
+		#: Value the literal evaluates to, parsing is done in from_string
+		self.value = value
+
+	def evaluate(self, context: Mapping):
+		return self.value
+
+	@classmethod
+	def from_string(cls, string):
+		...  # TODO implement
+
+
+class VariableExpression(Expression):
+	"""A variable in an expression."""
+
+	def evaluate(self, context: Mapping):
+		try:
+			return context[self.symbol]
+		except KeyError:
+			raise ExpressionEvaluationError(f"No such symbol in context: {self.symbol}")
+
+	@classmethod
+	def from_string(cls, string):
+		return cls(string.strip())
+
+	def __call__(self, *args) -> "FunctionCallExpression":
+		"""Like in Python: Functions behave the same as callable variables."""
+		return FunctionCallExpression(self.symbol, *args)
+
+
+class FunctionCallExpression(VariableExpression):
+	"""Function or method call."""
+
+	def __init__(self, symbol, *args):
+		super().__init__(symbol)
+		self.args = args
+
+	def __str__(self):
+		return f"{self.symbol}({', '.join(self.args)})"
+
+	def evaluate(self, context: Mapping):
+		try:
+			super().evaluate(context)(*self.args)
+		except TypeError:
+			raise ExpressionEvaluationError(f"Symbol {self.symbol} is not callable with {len(self.args)} arguments")
+
+	@classmethod
+	def from_string(cls, string):
+		string = string.strip()
+		# String is now: <function symbol>(<arg1>, <arg2>, ...)
+		# Get the function symbol
+		try:
+			symbol, rem = string.split("(", 1)
+		except ValueError:
+			raise ExpressionParsingError("Missing opening parenthesis for function call")
+		# Cut of closing parenthesis
+		if rem[-1] != "(":
+			raise ExpressionParsingError("Missing closing parenthesis for function call")
+		rem = rem[:-1]
+		# The problem at this point is, that splitting at commas wouldn't work
+		# because an argument could be another function call with comma-separated args
+		# Therefore, here is a little trick to make that work:
+		# Lets put [] around the args and treat them as an array
+		# The ArrayExpression parsing has the same problem in general and should be able to solve it
+		array = ArrayExpression.from_string(f"[{rem}]")
+		return cls(symbol, array.values)
+
+
+class ArrayExpression(Expression):
+	"""Array expression (ordered list of values, comma-separated)."""
+
+	def __init__(self, *values):
+		super().__init__("")
+		self.values = values
+
+	def __str__(self):
+		return f"[{', '.join(self.values)}]"
+
+	def evaluate(self, context: Mapping):
+		ret = list()
+		for val in self.values:
+			try:
+				ret.append(val.evaluate(context))
+			except AttributeError:
+				ret.append(val)
+		return ret
+
+	@classmethod
+	def from_string(cls, string):
+		# Delegate parsing to generalised parsing, because it would be too much duplicate code here
+		ret = UnknownExpression.from_string(string)
+		if not isinstance(ret, cls):
+			raise ExpressionParsingError(f"Wrong type ({type(ret)} instead of {cls.__name__})")
+		return ret
+
+
+class OperatorExpression(Expression):
+	"""Represents an expression that consists of at least one operator and one other expression.
+
+	:param operator: The operator used in this filter.
+	:param operands: Operands = other expressions as an sequence
+	"""
+
+	def __init__(self, operator, *operands):
+		super().__init__("")
+		self.operator = operator
+		self.operands = operands
+
+	def __str__(self):
+		return self.operator.print(*self.operands)
+
+	def evaluate(self, context: Mapping):
+		operands = list()
+		for operand in self.operands:
+			try:
+				operands.append(operand.evaluate(context))
+			except ExpressionParsingError:
+				raise
+			except AttributeError:
+				# Pass operand as raw value
+				operands.append(operand)
+		try:
+			return self.operator.operate(*operands)
+		except TypeError:
+			raise ExpressionEvaluationError("Operator not executable")
+
+	@classmethod
+	def from_string(cls, string):
+		# Delegate parsing to generalised parsing, because it would be too much duplicate code here
+		ret = UnknownExpression.from_string(string)
+		if not isinstance(ret, cls):
+			raise ExpressionParsingError(f"Wrong type ({type(ret)} instead of {cls.__name__})")
+		return ret
+
+
+
+class UnknownExpression(Expression):
+	"""Class for expressions of unknown type."""
+
+	...  # TODO implement
 
 
 #: Patterns for Icinga literals + converter callables (or None if not converted)
@@ -41,45 +282,6 @@ _LITERAL_PATTERNS = (
 )
 
 
-class Expression(abc.ABC):
-	"""Abstract expression."""
-
-	@staticmethod
-	def possible_attribute(string: str) -> bool:
-		"""Returns True if the given string is possibly an Attribute."""
-		return not any(pattern.fullmatch(string) for pattern, converter in _LITERAL_PATTERNS)
-
-	@abc.abstractmethod
-	def __str__(self):
-		return ""
-
-	def __eq__(self, other) -> "Filter":
-		return self.filter(BuiltinOperator.EQ, other)
-
-	def __ne__(self, other) -> "Filter":
-		return self.filter(BuiltinOperator.NE, other)
-
-	def __lt__(self, other) -> "Filter":
-		"""Create a filter comparing this attribute to a value."""
-		return self.filter(BuiltinOperator.LT, other)
-
-	def __le__(self, other) -> "Filter":
-		"""Create a filter comparing this attribute to a value."""
-		return self.filter(BuiltinOperator.LE, other)
-
-	def __ge__(self, other) -> "Filter":
-		"""Create a filter comparing this attribute to a value."""
-		return self.filter(BuiltinOperator.GE, other)
-
-	def __gt__(self, other) -> "Filter":
-		"""Create a filter comparing this attribute to a value."""
-		return self.filter(BuiltinOperator.GT, other)
-
-	def filter(self, operator: "Operator", value) -> "Filter":
-		"""Create a Filter object representing a simple filter for this object compared to a certain value."""
-		return Filter.simple(self, operator, value)
-
-
 class ValueOperand(Expression):
 	"""Value used for an operation."""
 	def __init__(self, value):
@@ -94,7 +296,7 @@ class ValueOperand(Expression):
 				if converter is not None:
 					return converter(self.value)
 				break
-		raise LiteralExecutionError(f"Unable to execute literal {self.value}")
+		raise ExpressionEvaluationError(f"Unable to execute literal {self.value}")
 
 	def __str__(self):
 		return self.value
@@ -106,13 +308,13 @@ class ValueOperand(Expression):
 		try:
 			return self.value == other.value
 		except AttributeError:
-			return self.filter(BuiltinOperator.EQ, other)
+			return self.compose(BuiltinOperator.EQ, other)
 
 	def __ne__(self, other):
 		try:
 			return self.value != other.value
 		except AttributeError:
-			return self.filter(BuiltinOperator.NE, other)
+			return self.compose(BuiltinOperator.NE, other)
 
 
 #: Pattern for "usual" operators
@@ -359,7 +561,7 @@ class Filter(Expression):
 		try:
 			return cls._from_list(cls._to_group_split(string))
 		except (IndexError, ValueError):
-			raise FilterParsingError(f"Failed to parse filter: {string}")
+			raise ExpressionParsingError(f"Failed to parse filter: {string}")
 
 	@classmethod
 	def _to_group_split(cls, string: str) -> Sequence:
@@ -487,11 +689,11 @@ class Filter(Expression):
 				lst[i] = cls(operator, (operand,))
 
 		if not lst:
-			raise FilterParsingError("Empty list")
+			raise ExpressionParsingError("Empty list")
 		elif len(lst) == 1:
 			return lst[0]
 		else:
-			raise FilterParsingError("Something went wrong...")
+			raise ExpressionParsingError("Something went wrong...")
 
 	def __str__(self):
 		"""Returns the appropriate Icinga filter string."""
@@ -513,17 +715,17 @@ class Filter(Expression):
 					operands.append(operand.execute(context))
 				else:
 					operands.append(operand.execute())
-			except (AttributeError, LiteralExecutionError):
+			except (AttributeError, ExpressionEvaluationError):
 				if isinstance(operand, Filter):
-					raise FilterExecutionError("Unable to execute filter")
+					raise ExpressionEvaluationError("Unable to execute filter")
 				try:
 					operands.append(context[operand])
 				except KeyError:
-					raise FilterExecutionError("Unable to interpret operand, and context lookup failed.")
+					raise ExpressionEvaluationError("Unable to interpret operand, and context lookup failed.")
 		try:
 			return self.operator.operate(*operands)
 		except TypeError:
-			raise FilterExecutionError("Operator not executable")
+			raise ExpressionEvaluationError("Operator not executable")
 
 	def execute_many(self, context: Optional["FilterExecutionContext"] = None) -> Callable[[Mapping], bool]:
 		"""Get a filter function to execute this filter for many items.

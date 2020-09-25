@@ -9,7 +9,7 @@ import enum
 from typing import Union, Optional, Sequence, Iterable, Generator, Iterator
 
 from .exceptions import AttributeParsingError
-from .expressions import Expression, Filter
+from .expressions import VariableExpression, Expression
 
 __all__ = ["Attribute", "AttributeSet"]
 
@@ -26,7 +26,7 @@ class _LeadKey(enum.Enum):
 SPECIAL_ATTRIBUTE_KEYS = set((item.value for item in _LeadKey if item.value is not None))
 
 
-class Attribute(Expression):
+class Attribute(VariableExpression):
 	"""Class representing an attribute of an Icinga object.
 
 	To illustrate this, lets image a dict `{"a": {"b": "c"}, "x": {"y": "z"}` as an Icinga object. From a technincal
@@ -269,14 +269,14 @@ class Attribute(Expression):
 	def __hash__(self):
 		return hash(repr(self))
 
-	def __eq__(self, other) -> Union[bool, Filter]:
+	def __eq__(self, other) -> Union[bool, Expression]:
 		"""Compare to other attribute description, or return a filter object."""
 		try:
 			return all((getattr(self, attr) == getattr(other, attr) for attr in self.__class__._object_attributes))
 		except AttributeError:
 			return super().__eq__(other)
 
-	def __ne__(self, other) -> Union[bool, Filter]:
+	def __ne__(self, other) -> Union[bool, Expression]:
 		"""Compare to other attribute description, or return a filter object."""
 		try:
 			return all((getattr(self, attr) != getattr(other, attr) for attr in self.__class__._object_attributes))
