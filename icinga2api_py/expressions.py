@@ -46,9 +46,9 @@ This class implements both nested filters and simple filters. Both are created b
 operands. The operands can be Expression objects (e.g. Filter objects) themselves, or values.
 
 The following things are currently not implemented and have no note to get implemented:
-- Assignment, definition of objects/variables/functions/...
+- Assignment, definition of objects/variables/functions/..., mutability in general
 - Reference/Dereference operations (&/*)
-- Bit operation (Bit-Or/And/XOR, ,,,, Shifting, ...)
+- Bit operation (Bit-Or/And/XOR, ..., Shifting, ...)
 - In / not in Operator
 - Dictionary expressions
 - Conditional expressions (incl. lambda)
@@ -66,6 +66,36 @@ import re
 from .exceptions import ExpressionParsingError, ExpressionEvaluationError
 
 
+#######################################################################################################################
+# Helper functions used later
+#######################################################################################################################
+
+#: Suffixes of duration literals to factors
+DURATION_LITERAL_SUFFIXES = {
+	"ms": 0.001,
+	"s": 1,
+	"m": 60,
+	"h": 3600,
+	"d": 86400,
+}
+
+
+def parse_duration_literal(string: str) -> float:
+	"""Duration literal as string to float."""
+	num, suffix = re.findall(r"([\d.]+)([a-z]*)", string)[0]
+	try:
+		return float(num) * DURATION_LITERAL_SUFFIXES[suffix]
+	except ValueError:
+		raise ExpressionParsingError(f"Unable to parse float in duration literal {string}")
+	except KeyError:
+		raise ExpressionParsingError(f"Unknown duration suffix {suffix}")
+
+
+#######################################################################################################################
+# Expression class and it's subclasses
+#######################################################################################################################
+
+
 class Expression(abc.ABC):
 	"""Abstract expression."""
 
@@ -81,10 +111,12 @@ class Expression(abc.ABC):
 		raise ExpressionEvaluationError()
 
 	@classmethod
-	@abc.abstractmethod
 	def from_string(cls, string):
 		"""Construct such an expression from a string."""
-		raise ExpressionParsingError()
+		ret = expression_from_string(string)
+		if not isinstance(ret, cls):
+			raise ExpressionParsingError(f"Wrong type ({type(ret)} instead of {cls.__name__})")
+		return ret
 
 	def __eq__(self, other) -> "OperatorExpression":
 		return self.compose(BuiltinOperator.EQ, other)
@@ -113,7 +145,24 @@ class Expression(abc.ABC):
 
 
 class LiteralExpression(Expression):
-	"""A literal."""
+	"""A simple literal."""
+
+	#: Every convertable simple literal
+	_LITERAL_PATTERNS = (
+		# Boolean literals
+		(re.compile(r"true"), lambda _: True),
+		(re.compile(r"false"), lambda _: False),
+		# Null/None
+		(re.compile(r"null"), lambda _: None),
+		# Exponents are not metioned in the Icinga docs... # TODO test (or read source code), what does Icinga do?
+		# 	r"[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?" with exponents
+		(re.compile(r"[-+]?(\d+(\.\d*)?|\.\d+)"), float),
+		# Duration literals  # TODO test if exponents are allowed here
+		(re.compile(r"[-+]?((\d+(\.\d*)?|\.\d+)(ms|s|m|h|d)?)+"), parse_duration_literal),
+		# String literals
+		(re.compile(r'".*"'), lambda string: string[1:-1]),
+		(re.compile(r"{{{.*}}}", re.DOTALL), lambda string: string[3:-3]),
+	)
 
 	def __init__(self, symbol, value):
 		super().__init__(symbol)
@@ -125,7 +174,15 @@ class LiteralExpression(Expression):
 
 	@classmethod
 	def from_string(cls, string):
-		...  # TODO implement
+		string.strip()
+		for pattern, converter in cls._LITERAL_PATTERNS:
+			if pattern.fullmatch(string):
+				if converter is not None:
+					try:
+						return converter(string)
+					except (TypeError, ValueError, AttributeError):
+						raise ExpressionParsingError(f"Unable to parse simple literal: {string}")
+		raise ExpressionParsingError(f"Unable to parse as simple literal: {string}")
 
 
 class VariableExpression(Expression):
@@ -203,13 +260,8 @@ class ArrayExpression(Expression):
 				ret.append(val)
 		return ret
 
-	@classmethod
-	def from_string(cls, string):
-		# Delegate parsing to generalised parsing, because it would be too much duplicate code here
-		ret = UnknownExpression.from_string(string)
-		if not isinstance(ret, cls):
-			raise ExpressionParsingError(f"Wrong type ({type(ret)} instead of {cls.__name__})")
-		return ret
+	def __getitem__(self, item):
+		return self.values[item]
 
 
 class OperatorExpression(Expression):
@@ -242,20 +294,46 @@ class OperatorExpression(Expression):
 		except TypeError:
 			raise ExpressionEvaluationError("Operator not executable")
 
-	@classmethod
-	def from_string(cls, string):
-		# Delegate parsing to generalised parsing, because it would be too much duplicate code here
-		ret = UnknownExpression.from_string(string)
-		if not isinstance(ret, cls):
-			raise ExpressionParsingError(f"Wrong type ({type(ret)} instead of {cls.__name__})")
-		return ret
+
+def expression_from_string(string: str) -> Expression:
+	"""Parse an expression of unknown type from a string."""
+	struct = _string_to_structure(string)
+	return _from_struct(struct)
 
 
+#: Regex pattern grouping characters into the following groups:
+#: 0. Opening parenthesis: "(", "["
+#: 1. Closing parenthesis: ")", "]"
+#: 2. "
+#: 3. Any alphanumeric char or .
+#: 4. Everything else that is not space (single commas, or multiple chars of something else)
+_CHAR_GROUPING = re.compile(r"([(\[])|([)\]])|([\"])|([\w.]+)|(,|[^()\[\]\"\w.\s]+)")
 
-class UnknownExpression(Expression):
-	"""Class for expressions of unknown type."""
+#: The intermediate structure produced by _string_to_structure
+#: It's a tree-like structure and as such a sequence of the same types and strings as leaves
+_STRUCTURE_TYPE = Sequence[Union["_STRUCTURE_TYPE", str]]
 
-	...  # TODO implement
+
+def _string_to_structure(string: str) -> _STRUCTURE_TYPE:
+	"""Parse string to an intermediate structure.
+
+	This method works iteratively.
+	"""
+	...  # TODO parse string to the intermediate structure using character grouping
+
+
+def _from_struct(struct: _STRUCTURE_TYPE) -> Expression:
+	"""Generate an Expression object from the given intermediate structure (applied character grouping).
+
+	This function works with recursion.
+	"""
+	...  # TODO construct expression object(s)
+
+
+#######################################################################################################################
+# Old code
+# TODO remove this as soon as the new code covers all of the old one's functionality and has tests
+#######################################################################################################################
 
 
 #: Patterns for Icinga literals + converter callables (or None if not converted)
