@@ -59,7 +59,8 @@ The following things are currently not implemented and have no note to get imple
 import abc
 import collections.abc
 import enum
-from typing import Union, Optional, Any, Sequence, Iterable, Generator, Callable, Mapping, MutableMapping
+import itertools
+from typing import Union, Optional, Any, Sequence, Iterable, Generator, Callable, Mapping, MutableMapping, List
 import operator as op
 import re
 
@@ -196,6 +197,7 @@ class VariableExpression(Expression):
 
 	@classmethod
 	def from_string(cls, string):
+		# TODO check whether that string is a valid variable name
 		return cls(string.strip())
 
 	def __call__(self, *args) -> "FunctionCallExpression":
@@ -298,20 +300,25 @@ class OperatorExpression(Expression):
 def expression_from_string(string: str) -> Expression:
 	"""Parse an expression of unknown type from a string."""
 	struct = _string_to_structure(string)
-	return _from_struct(struct)
+	return _finalise_subexpression(struct)
 
 
 #: Regex pattern grouping characters into the following groups:
-#: 0. Opening parenthesis: "(", "["
-#: 1. Closing parenthesis: ")", "]"
-#: 2. "
-#: 3. Any alphanumeric char or .
-#: 4. Everything else that is not space (single commas, or multiple chars of something else)
-_CHAR_GROUPING = re.compile(r"([(\[])|([)\]])|([\"])|([\w.]+)|(,|[^()\[\]\"\w.\s]+)")
+#: 0. Single opening brackets: "(", "["
+#: 1. Single closing brackets: ")", "]"
+#: 2. A ,
+#: 3. A string, starting and ending with " or {{{ resp. }}}
+#: 4. Any alphanumeric characters or .
+#: 5. Everything else that is not space (multiple chars)
+_CHAR_GROUPING = re.compile(
+	r"([(\[])|([)\]])|(,)|(\".*?\"|{{{.*?}}})|([\w.]+)|([^()\[\]\"\w.\s]+)",
+	# Match line breaks with dots (for multiline strings)
+	re.DOTALL
+)
 
 #: The intermediate structure produced by _string_to_structure
 #: It's a tree-like structure and as such a sequence of the same types and strings as leaves
-_STRUCTURE_TYPE = Sequence[Union["_STRUCTURE_TYPE", str]]
+_STRUCTURE_TYPE = List[Union["_STRUCTURE_TYPE", str]]
 
 
 def _string_to_structure(string: str) -> _STRUCTURE_TYPE:
@@ -319,15 +326,158 @@ def _string_to_structure(string: str) -> _STRUCTURE_TYPE:
 
 	This method works iteratively.
 	"""
-	...  # TODO parse string to the intermediate structure using character grouping
+	# Split string into character lst
+	groups = _CHAR_GROUPING.findall(f"({string})")
+	# res contains the structure to return, cur keeps track of the "current" part in view
+	cur = res = list()
+	# Track cur references (to go up in hierarchy on closing brackets)
+	# The last item is a reference to the "parent" of cur
+	stack = list()
+
+	for chars in groups:
+		if chars[0]:  # Opening brackets of some kind .................................................................
+			# One step down the hierarchy
+			cur.append(list())
+			# Remember the parent
+			stack.append(cur)
+			# Set view to the new child-filter-build-list
+			cur = cur[-1]
+			# Remember what kind of bracket caused this
+			cur.append(chars[0])
+		elif chars[1]:  # Closing brackets of some kind ...............................................................
+			temp = cur
+			# One step up the hierarchy
+			cur = stack.pop()
+			# Get what _closing_brackets returns using the predecessor, but take care that there might be no predecessor
+			elements = _closing_brackets((cur.pop(-1) if len(cur) > 0 else None), chars[1], temp)
+			# Append to cur but do not append the first element if it's None
+			cur.extend(elements[(elements[0] is None):])
+		elif chars[2]:  # A comma .....................................................................................
+			# Append ellipsis as a placeholder to test for on closing brackets
+			cur.append(...)
+		# Everything else .............................................................................................
+		# The reason to put these into different capturing groups is that they match multiple chars
+		# But the different types of characters should get separated
+		s = chars[3] or chars[4] or chars[5]
+		try:
+			# Try to interpret as a literal
+			cur.append(LiteralExpression.from_string(s))
+			continue
+		except ExpressionParsingError:
+			# Not a literal -> try as an Operator
+			try:
+				cur.append(Operator.from_string(s))
+			except KeyError:
+				pass
+			# Failed to parse as literal and as operator -> that has to be a variable
+			cur.append(VariableExpression.from_string(s))
+
+	return res
 
 
-def _from_struct(struct: _STRUCTURE_TYPE) -> Expression:
-	"""Generate an Expression object from the given intermediate structure (applied character grouping).
+def _closing_brackets(predecessor, bracket: str, lst: Sequence) -> Sequence:
+	"""Helper function, called on closing brackets.
 
-	This function works with recursion.
+	Possible outcomes in this case:
+	- Array
+	- Function call
+	- Sub-expression
+	- Array subscript (variable[0])
+
+	:param predecessor: What came before the (opening) bracket, None if nothing
+	:param bracket: The closing bracket char
+	:param lst: A sequence of expressions, operators and commas (as ellipsis) inside the brackets
+
+	:return A sequence of things to append instead of predecessor and the brackets
 	"""
-	...  # TODO construct expression object(s)
+	opening = lst[0]
+	closing = bracket
+	lst = lst[1:]
+	parens = opening == "("
+	if (closing == ")" and opening != "(") or (closing == "]" and opening != "["):
+		# Wrong kind
+		raise ExpressionParsingError(f"Missing closing brackets for {lst[0]}")
+
+	# Finalise everything between commas
+	values = ((comma, list(values)) for comma, values in itertools.groupby(lst, lambda x: x is ...))
+	values = [
+		_finalise_subexpression(sub)
+		for comma, sub
+		in values
+		# Ignore single commas
+		if not (comma and len(sub) == 1)
+	]
+
+	if len(values) == 1:
+		# It was a comma-separated list of values
+		if parens:
+			# Function call
+			return predecessor(*values),
+		else:
+			# Array
+			return ArrayExpression(*values),
+	# Not a comma-separated list -> sub-expression or array subscript or array with one item
+	if parens:
+		# Return the finalised subexpression
+		return predecessor, values[0] if predecessor else values[0],
+	else:
+		# It's inside [], so it's an array with one item or an array subscript...
+		if isinstance(predecessor, Expression):
+			...  # TODO It's an array subscript - how to handle that???
+			raise ExpressionParsingError("Currently unable to parse array subscript")
+		# Array with one value
+		return predecessor, ArrayExpression(values[0])
+
+
+def _finalise_subexpression(lst: _STRUCTURE_TYPE) -> Expression:
+	"""Helper function: finalise a (sub-)expression -
+	this is called with stuff inside closing parenthesis and between commas in an array."""
+
+	def min_operator() -> int:
+		"""Get index of the item in lst that is the operator with the smallest precedence."""
+		m_index, precedence = -1, 0
+		for i, item in enumerate(lst):
+			try:
+				if (item.precedence and not precedence) or item.precedence < precedence:
+					m_index, precedence = i, item.precedence
+			except AttributeError:
+				pass
+		return m_index
+
+	while True:
+		i = min_operator()
+		if i < 0:
+			# No operator in lst
+			break
+
+		# Operator to consider (lowest precedence)
+		operator = lst[i]
+		# Found operator in lst -> what kind of operator is it?
+		if operator.type.pos:
+			# Operator after first operand
+			if operator.type.minimum_operands == 1:
+				# <operand><operator>
+				operand = lst.pop(i - 1)
+				lst[i] = OperatorExpression(operator, (operand, ))
+			else:
+				# <operand1><operator><operand2>
+				operand2 = lst.pop(i + 1)
+				operand1 = lst.pop(i - 1)
+				# TODO join OperatorExpression objects if the operator is the same and accepts more than two operands
+				lst[i - 1] = OperatorExpression(operator, (operand1, operand2))
+		else:
+			# Operator before operand
+			operand = lst.pop(i + 1)
+			lst[i] = OperatorExpression(operator, (operand, ))
+
+	# Return the finalised (sub-)expression
+	if not lst:
+		raise ExpressionParsingError("Empty list")
+	elif len(lst) == 1:
+		return lst[0]
+	else:
+		print(lst)
+		raise ExpressionParsingError("Something went wrong: finalising expression wasn't able to finalise...")
 
 
 #######################################################################################################################

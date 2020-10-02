@@ -136,8 +136,8 @@ def test_operator_print_method():
 		("a==0 && b==1 && c==2", "((a==0)&&(b==1))&&(c==2)"),
 		# Maxi test string...
 		(
-				"a.b==c.d ||(e.f.g(hi,j)&&kl(m.n,!o.p,q.r)&&s.t)||u.v<1",
-				"(a.b==c.d)||(e.f.g(hi,j)&&kl(m.n,!o.p,q.r)&&s.t)||(u.v<1)"
+				"a.b==c.d ||(e.f.g(hi,j)&&kl(m.n,!o.p,q.r)&&s.t)||u.v<1||s==\"s\"",
+				"(a.b==c.d)||(e.f.g(hi,j)&&kl(m.n,!o.p,q.r)&&s.t)||(u.v<1)||(s==\"s\")"
 		)
 ))
 def test_filter_fromstring(string, string2):
