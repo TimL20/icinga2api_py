@@ -5,26 +5,86 @@ Tests for the expressions module.
 
 import pytest
 
-from icinga2api_py.expressions import ValueOperand, Operator, Filter, FilterExecutionContext
+from icinga2api_py.expressions import *
 
 
-@pytest.mark.parametrize("value, res, executed", (
-		('"a"', None, "a"),
-		("1", None, 1),
-		(1, "1", 1),
-		(.1, "0.1", .1),
-		(".1", None, .1),
-		("true", None, True),
-		("false", None, False),
-		("null", None, None),
+#: Empty context object for multiple usages
+EMPTY_CONTEXT = FilterExecutionContext()
+
+#: Literals as string and value tuples
+LITERALS = (
+	('"a"', "a"),
+	("1", 1),
+	(".1", .1),
+	("3m", 180),
+	("2ms", 0.002),
+	("true", True),
+	("false", False),
+	("null", None),
+	("{{{abc\ndef}}}", "abc\ndef"),
+	(" false ", False),
+)
+
+
+LITERAL_IDS = [f"{i}:{t[0]}" for i, t in enumerate(LITERALS)]
+
+
+@pytest.fixture(scope="function", params=LITERALS, ids=LITERAL_IDS)
+def literal_expression(request):
+	"""Some LiteralExpression objects."""
+	string, value = request.param
+	return LiteralExpression(string, value)
+
+
+def test_literal_expression(literal_expression):
+	"""Test LiteralExpression."""
+	o = LiteralExpression.from_string(literal_expression.symbol)
+	assert o.value == literal_expression.value
+	assert o == literal_expression
+
+
+@pytest.mark.parametrize("string", (
+	# Multiline string not allowed in ""
+	'"a\nb"',
+	# Missing ""
+	"abc",
+	# Invalid float
+	"1.1.1",
+	# Invalid for obvious reasons
+	"f a l s e",
+	"1q",
 ))
-def test_value_operand(value, res, executed):
-	"""Test ValueOperand."""
-	o = ValueOperand(value)
-	res = res or value
-	assert o.value == res
+@pytest.mark.xfail(raises=ExpressionParsingError)
+def test_literal_expression_fails(string):
+	"""Test LiteralExpression parsing that should fail."""
+	LiteralExpression.from_string(string)
 
-	assert o.execute() == executed
+
+def test_variable_expression():
+	"""Test VariableExpression."""
+	# Just test that none of these are raising an exception
+	VariableExpression.from_string("a")
+	VariableExpression.from_string("a1")
+	VariableExpression.from_string("a_123")
+	VariableExpression.from_string("_a")
+	VariableExpression.from_string("_abc_123_def")
+
+
+@pytest.mark.parametrize("string", (
+	"1", "true", "-f", "ü", "$a"
+))
+@pytest.mark.xfail(raises=ExpressionParsingError)
+def test_variable_expression_fails(string):
+	"""Test invalid variable expressions."""
+	VariableExpression.from_string(string)
+
+
+def test_function_expression():
+	"""Test FunctionExpression."""
+	name = "a"
+	o = VariableExpression(name)(1, 2, 3)
+	assert o.symbol == name
+	assert o.args == (1, 2, 3)
 
 
 def test_operator_basics():
@@ -121,11 +181,46 @@ def test_operator_print_method():
 	assert op.print("b") == "b.a()"
 
 
-# TODO add filter basics test
+# TODO add Expression basics test
 
-# TODO add filter to str test
+# TODO add Expression to str test
 
-@pytest.mark.parametrize("string, string2", (
+
+@pytest.mark.parametrize("string, cls", (
+		# One variable
+		("a", VariableExpression),
+		# One Literal
+		("1", LiteralExpression),
+		("true", LiteralExpression),
+		('"s"', LiteralExpression),
+		("4m", LiteralExpression),
+))
+def test_parsing_simple(string, cls):
+	"""Test parsing very simple expressions."""
+	o = Expression.from_string(string)
+	assert isinstance(o, cls)
+
+
+@pytest.mark.parametrize("string", (
+	"", "$", "1q", ",",
+	# Missing brackets
+	"[, 1]", "[1", "1]", "a[]",
+	"(1 == 2", "1 == 2)",
+	# Missing operands
+	"1 ==", "== 1", "a and", "and b",
+	# More complex...
+	"fun(a.b==0, $a)",
+	"fun((a.b==0, 1)",
+	"fun(a.b==0), 1)",
+	"fun(a.b==0,, 1)",
+))
+@pytest.mark.xfail(raises=ExpressionParsingError)
+def test_parsing_fails(string):
+	"""Test parsing invalid expressions."""
+	Expression.from_string(string)
+
+
+@pytest.mark.parametrize("string1, string2", (
 		('a.b=="a.b"', 'a.b=="a.b"'),
 		("a.b==1", "(a.b)==(1)"),
 		("a.b(1)", "(a.b(1))"),
@@ -134,20 +229,33 @@ def test_operator_print_method():
 		("fun1(1, fun2(2, 3))", "(fun1(1, (fun2(2, 3))))"),
 		("a.b(1, 2, fun(c, 3))==4", "(a.b(1, 2, (fun(c, 3))))==4"),
 		("a==0 && b==1 && c==2", "((a==0)&&(b==1))&&(c==2)"),
-		# Maxi test string...
 		(
 				"a.b==c.d ||(e.f.g(hi,j)&&kl(m.n,!o.p,q.r)&&s.t)||u.v<1||s==\"s\"",
 				"(a.b==c.d)||(e.f.g(hi,j)&&kl(m.n,!o.p,q.r)&&s.t)||(u.v<1)||(s==\"s\")"
 		)
 ))
-def test_filter_fromstring(string, string2):
-	"""Test Filter.form_string()."""
-	obj = Filter.from_string(string)
-	obj2 = Filter.from_string(string2)
-	fstring = str(obj).replace(" ", "")
+def test_parsing_complex(string1, string2):
+	"""Test parsing and printing more complex expressions."""
+	obj1 = Expression.from_string(string1)
+	obj2 = Expression.from_string(string2)
 	# Spacing is allowed to be different
-	assert fstring == string.replace(" ", "")
-	assert str(obj2).replace(" ", "") == fstring
+	assert str(obj1).replace(" ", "") == str(obj2).replace(" ", "")
+
+
+# Maximum test expression for deep inspection
+MAXI_TEST_EXPRESSION = """
+0 != 1 && (a == "b" || c*2 < 3d && e["f"] == {{{g
+h}}} && i > j || k.l["m"][ n/4+5 ].o["p"] == 6.7)
+&& [8, ][0] > [-9][0] 
+&& (true && !false)
+&& q(r) == s(t, u, v)
+"""
+
+
+def test_parsing_maxi():
+	"""Test parsing the maximum string and inspect depply whether that worked."""
+	e = Expression.from_string(MAXI_TEST_EXPRESSION)
+	assert len(e.operands) == 5
 
 
 @pytest.fixture(scope="function")
@@ -208,5 +316,5 @@ def test_context_with_secondary(context):
 def test_string_execution(string, context, res):
 	"""Test filter string execution."""
 	context = FilterExecutionContext(context)
-	assert Filter.from_string(string).execute(context) == res
+	assert Expression.from_string(string).evaluate(context) == res
 

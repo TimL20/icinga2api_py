@@ -111,6 +111,20 @@ class Expression(abc.ABC):
 	def evaluate(self, context: Mapping):
 		raise ExpressionEvaluationError()
 
+	def evaluate_many(self, context: Optional["FilterExecutionContext"] = None) -> Callable[[Mapping], bool]:
+		"""Get a filter function to execute this filter for many items.
+
+		This method was introduced for use of the returned callable in a Python filter statement as a filter function.
+		The context given here is expected to only have a primary context, and the objects for which the filter function
+		is applied are used as the secondary context.
+		:meth:`evaluate` is used for expression evaluation with the resulting context.
+		"""
+		def evaluate(mapping) -> bool:
+			"""Execute a filter function."""
+			return self.evaluate(context.with_secondary(mapping))
+
+		return evaluate
+
 	@classmethod
 	def from_string(cls, string):
 		"""Construct such an expression from a string."""
@@ -120,29 +134,32 @@ class Expression(abc.ABC):
 		return ret
 
 	def __eq__(self, other) -> "OperatorExpression":
-		return self.compose(BuiltinOperator.EQ, other)
+		return self.comparison(BuiltinOperator.EQ, other)
 
 	def __ne__(self, other) -> "OperatorExpression":
-		return self.compose(BuiltinOperator.NE, other)
+		return self.comparison(BuiltinOperator.NE, other)
 
 	def __lt__(self, other) -> "OperatorExpression":
 		"""Create a filter comparing this attribute to a value."""
-		return self.compose(BuiltinOperator.LT, other)
+		return self.comparison(BuiltinOperator.LT, other)
 
 	def __le__(self, other) -> "OperatorExpression":
 		"""Create a filter comparing this attribute to a value."""
-		return self.compose(BuiltinOperator.LE, other)
+		return self.comparison(BuiltinOperator.LE, other)
 
 	def __ge__(self, other) -> "OperatorExpression":
 		"""Create a filter comparing this attribute to a value."""
-		return self.compose(BuiltinOperator.GE, other)
+		return self.comparison(BuiltinOperator.GE, other)
 
 	def __gt__(self, other) -> "OperatorExpression":
 		"""Create a filter comparing this attribute to a value."""
-		return self.compose(BuiltinOperator.GT, other)
+		return self.comparison(BuiltinOperator.GT, other)
 
-	def compose(self, operator: "Operator", value) -> "OperatorExpression":
-		return OperatorExpression(operator, self, value)
+	def comparison(self, operator: "Operator", value) -> "OperatorExpression":
+		# TODO think about this...
+		if isinstance(value, Expression):
+			return OperatorExpression(operator, self, value)
+		return NotImplemented
 
 
 class LiteralExpression(Expression):
@@ -175,34 +192,62 @@ class LiteralExpression(Expression):
 
 	@classmethod
 	def from_string(cls, string):
-		string.strip()
+		string = string.strip()
 		for pattern, converter in cls._LITERAL_PATTERNS:
 			if pattern.fullmatch(string):
 				if converter is not None:
 					try:
-						return converter(string)
+						return cls(string, converter(string))
 					except (TypeError, ValueError, AttributeError):
 						raise ExpressionParsingError(f"Unable to parse simple literal: {string}")
 		raise ExpressionParsingError(f"Unable to parse as simple literal: {string}")
+
+	def comparison(self, operator: "Operator", value) -> Union[bool, "OperatorExpression"]:
+		if isinstance(value, self.__class__):
+			return operator.operate(self.value, value.value)
+		return super().comparison(operator, value)
 
 
 class VariableExpression(Expression):
 	"""A variable in an expression."""
 
+	#: What is valid as a variable here:
+	#: Regular variable name with attribute indices and array subscripts
+	VALIDATION_PATTERN = re.compile(r"^[a-zA-Z_](\.?[a-zA-Z0-9_]+)*$")
+
+	def __init__(self, symbol):
+		super().__init__(symbol)
+		self.parts = symbol.split(".")
+
 	def evaluate(self, context: Mapping):
 		try:
-			return context[self.symbol]
-		except KeyError:
+			temp = context
+			for part in self.parts:
+				temp = temp[part]
+			return temp
+		except (KeyError, TypeError):
 			raise ExpressionEvaluationError(f"No such symbol in context: {self.symbol}")
 
 	@classmethod
 	def from_string(cls, string):
-		# TODO check whether that string is a valid variable name
-		return cls(string.strip())
+		# Check whether that variable name is generally OK
+		if not cls.VALIDATION_PATTERN.match(string):
+			raise ExpressionParsingError(f"Invalid variable expression: {string}")
+		# Check it's not a literal
+		try:
+			LiteralExpression.from_string(string)
+		except ExpressionParsingError:
+			return cls(string)
+		else:
+			raise ExpressionParsingError(f"Invalid variable expression: {string}")
 
 	def __call__(self, *args) -> "FunctionCallExpression":
 		"""Like in Python: Functions behave the same as callable variables."""
 		return FunctionCallExpression(self.symbol, *args)
+
+	def __getitem__(self, item):
+		"""Array subscript or dictionary indexing."""
+		...  # TODO implement
 
 
 class FunctionCallExpression(VariableExpression):
@@ -213,34 +258,14 @@ class FunctionCallExpression(VariableExpression):
 		self.args = args
 
 	def __str__(self):
-		return f"{self.symbol}({', '.join(self.args)})"
+		args = (str(arg) for arg in self.args)
+		return f"{self.symbol}({', '.join(args)})"
 
 	def evaluate(self, context: Mapping):
 		try:
 			super().evaluate(context)(*self.args)
 		except TypeError:
 			raise ExpressionEvaluationError(f"Symbol {self.symbol} is not callable with {len(self.args)} arguments")
-
-	@classmethod
-	def from_string(cls, string):
-		string = string.strip()
-		# String is now: <function symbol>(<arg1>, <arg2>, ...)
-		# Get the function symbol
-		try:
-			symbol, rem = string.split("(", 1)
-		except ValueError:
-			raise ExpressionParsingError("Missing opening parenthesis for function call")
-		# Cut of closing parenthesis
-		if rem[-1] != "(":
-			raise ExpressionParsingError("Missing closing parenthesis for function call")
-		rem = rem[:-1]
-		# The problem at this point is, that splitting at commas wouldn't work
-		# because an argument could be another function call with comma-separated args
-		# Therefore, here is a little trick to make that work:
-		# Lets put [] around the args and treat them as an array
-		# The ArrayExpression parsing has the same problem in general and should be able to solve it
-		array = ArrayExpression.from_string(f"[{rem}]")
-		return cls(symbol, array.values)
 
 
 class ArrayExpression(Expression):
@@ -273,7 +298,7 @@ class OperatorExpression(Expression):
 	:param operands: Operands = other expressions as an sequence
 	"""
 
-	def __init__(self, operator, *operands):
+	def __init__(self, operator: "Operator", *operands):
 		super().__init__("")
 		self.operator = operator
 		self.operands = operands
@@ -295,254 +320,6 @@ class OperatorExpression(Expression):
 			return self.operator.operate(*operands)
 		except TypeError:
 			raise ExpressionEvaluationError("Operator not executable")
-
-
-def expression_from_string(string: str) -> Expression:
-	"""Parse an expression of unknown type from a string."""
-	struct = _string_to_structure(string)
-	return _finalise_subexpression(struct)
-
-
-#: Regex pattern grouping characters into the following groups:
-#: 0. Single opening brackets: "(", "["
-#: 1. Single closing brackets: ")", "]"
-#: 2. A ,
-#: 3. A string, starting and ending with " or {{{ resp. }}}
-#: 4. Any alphanumeric characters or .
-#: 5. Everything else that is not space (multiple chars)
-_CHAR_GROUPING = re.compile(
-	r"([(\[])|([)\]])|(,)|(\".*?\"|{{{.*?}}})|([\w.]+)|([^()\[\]\"\w.\s]+)",
-	# Match line breaks with dots (for multiline strings)
-	re.DOTALL
-)
-
-#: The intermediate structure produced by _string_to_structure
-#: It's a tree-like structure and as such a sequence of the same types and strings as leaves
-_STRUCTURE_TYPE = List[Union["_STRUCTURE_TYPE", str]]
-
-
-def _string_to_structure(string: str) -> _STRUCTURE_TYPE:
-	"""Parse string to an intermediate structure.
-
-	This method works iteratively.
-	"""
-	# Split string into character lst
-	groups = _CHAR_GROUPING.findall(f"({string})")
-	# res contains the structure to return, cur keeps track of the "current" part in view
-	cur = res = list()
-	# Track cur references (to go up in hierarchy on closing brackets)
-	# The last item is a reference to the "parent" of cur
-	stack = list()
-
-	for chars in groups:
-		if chars[0]:  # Opening brackets of some kind .................................................................
-			# One step down the hierarchy
-			cur.append(list())
-			# Remember the parent
-			stack.append(cur)
-			# Set view to the new child-filter-build-list
-			cur = cur[-1]
-			# Remember what kind of bracket caused this
-			cur.append(chars[0])
-		elif chars[1]:  # Closing brackets of some kind ...............................................................
-			temp = cur
-			# One step up the hierarchy
-			cur = stack.pop()
-			# Get what _closing_brackets returns using the predecessor, but take care that there might be no predecessor
-			elements = _closing_brackets((cur.pop(-1) if len(cur) > 0 else None), chars[1], temp)
-			# Append to cur but do not append the first element if it's None
-			cur.extend(elements[(elements[0] is None):])
-		elif chars[2]:  # A comma .....................................................................................
-			# Append ellipsis as a placeholder to test for on closing brackets
-			cur.append(...)
-		# Everything else .............................................................................................
-		# The reason to put these into different capturing groups is that they match multiple chars
-		# But the different types of characters should get separated
-		s = chars[3] or chars[4] or chars[5]
-		try:
-			# Try to interpret as a literal
-			cur.append(LiteralExpression.from_string(s))
-			continue
-		except ExpressionParsingError:
-			# Not a literal -> try as an Operator
-			try:
-				cur.append(Operator.from_string(s))
-			except KeyError:
-				pass
-			# Failed to parse as literal and as operator -> that has to be a variable
-			cur.append(VariableExpression.from_string(s))
-
-	return res
-
-
-def _closing_brackets(predecessor, bracket: str, lst: Sequence) -> Sequence:
-	"""Helper function, called on closing brackets.
-
-	Possible outcomes in this case:
-	- Array
-	- Function call
-	- Sub-expression
-	- Array subscript (variable[0])
-
-	:param predecessor: What came before the (opening) bracket, None if nothing
-	:param bracket: The closing bracket char
-	:param lst: A sequence of expressions, operators and commas (as ellipsis) inside the brackets
-
-	:return A sequence of things to append instead of predecessor and the brackets
-	"""
-	opening = lst[0]
-	closing = bracket
-	lst = lst[1:]
-	parens = opening == "("
-	if (closing == ")" and opening != "(") or (closing == "]" and opening != "["):
-		# Wrong kind
-		raise ExpressionParsingError(f"Missing closing brackets for {lst[0]}")
-
-	# Finalise everything between commas
-	values = ((comma, list(values)) for comma, values in itertools.groupby(lst, lambda x: x is ...))
-	values = [
-		_finalise_subexpression(sub)
-		for comma, sub
-		in values
-		# Ignore single commas
-		if not (comma and len(sub) == 1)
-	]
-
-	if len(values) == 1:
-		# It was a comma-separated list of values
-		if parens:
-			# Function call
-			return predecessor(*values),
-		else:
-			# Array
-			return ArrayExpression(*values),
-	# Not a comma-separated list -> sub-expression or array subscript or array with one item
-	if parens:
-		# Return the finalised subexpression
-		return predecessor, values[0] if predecessor else values[0],
-	else:
-		# It's inside [], so it's an array with one item or an array subscript...
-		if isinstance(predecessor, Expression):
-			...  # TODO It's an array subscript - how to handle that???
-			raise ExpressionParsingError("Currently unable to parse array subscript")
-		# Array with one value
-		return predecessor, ArrayExpression(values[0])
-
-
-def _finalise_subexpression(lst: _STRUCTURE_TYPE) -> Expression:
-	"""Helper function: finalise a (sub-)expression -
-	this is called with stuff inside closing parenthesis and between commas in an array."""
-
-	def min_operator() -> int:
-		"""Get index of the item in lst that is the operator with the smallest precedence."""
-		m_index, precedence = -1, 0
-		for i, item in enumerate(lst):
-			try:
-				if (item.precedence and not precedence) or item.precedence < precedence:
-					m_index, precedence = i, item.precedence
-			except AttributeError:
-				pass
-		return m_index
-
-	while True:
-		i = min_operator()
-		if i < 0:
-			# No operator in lst
-			break
-
-		# Operator to consider (lowest precedence)
-		operator = lst[i]
-		# Found operator in lst -> what kind of operator is it?
-		if operator.type.pos:
-			# Operator after first operand
-			if operator.type.minimum_operands == 1:
-				# <operand><operator>
-				operand = lst.pop(i - 1)
-				lst[i] = OperatorExpression(operator, (operand, ))
-			else:
-				# <operand1><operator><operand2>
-				operand2 = lst.pop(i + 1)
-				operand1 = lst.pop(i - 1)
-				# TODO join OperatorExpression objects if the operator is the same and accepts more than two operands
-				lst[i - 1] = OperatorExpression(operator, (operand1, operand2))
-		else:
-			# Operator before operand
-			operand = lst.pop(i + 1)
-			lst[i] = OperatorExpression(operator, (operand, ))
-
-	# Return the finalised (sub-)expression
-	if not lst:
-		raise ExpressionParsingError("Empty list")
-	elif len(lst) == 1:
-		return lst[0]
-	else:
-		print(lst)
-		raise ExpressionParsingError("Something went wrong: finalising expression wasn't able to finalise...")
-
-
-#######################################################################################################################
-# Old code
-# TODO remove this as soon as the new code covers all of the old one's functionality and has tests
-#######################################################################################################################
-
-
-#: Patterns for Icinga literals + converter callables (or None if not converted)
-_LITERAL_PATTERNS = (
-	# String literals
-	(re.compile(r'".*"'), lambda s: s[1:-1]),
-	# Boolean literals
-	# TODO A problem of this approach here (in general) is, that Python's True/False are not converted to Icinga's bool
-	# 	values correctly (because of lowercase)
-	(re.compile(r"true"), lambda _: True), (re.compile(r"false"), lambda _: False),
-	# Null/None
-	(re.compile(r"null"), lambda _: None),
-	# Dictionary literals (not parsed as an operand)
-	(re.compile(r"{.*}"), None),
-	# Array literals (not parsed as an operand)
-	(re.compile(r"\[.*\]"), None),
-	# Number literals (exponents are not mentioned in Icinga docs)
-	# Exponents are not metioned in the Icinga docs... # TODO test (or read source code), what does Icinga do?
-	# 	r"[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?" with exponents
-	(re.compile(r"[-+]?(\d+(\.\d*)?|\.\d+)"), float),
-	# Duration literals
-	# TODO interpret duration literals, it's not that difficult...
-	(re.compile(r"[-+]?((\d+(\.\d*)?|\.\d+)(ms|s|m|h|d)?)+"), None),
-)
-
-
-class ValueOperand(Expression):
-	"""Value used for an operation."""
-	def __init__(self, value):
-		if not isinstance(value, str):
-			value = str(value)
-		self.value = value
-
-	def execute(self):
-		"""Literal execution."""
-		for pattern, converter in _LITERAL_PATTERNS:
-			if pattern.fullmatch(self.value):
-				if converter is not None:
-					return converter(self.value)
-				break
-		raise ExpressionEvaluationError(f"Unable to execute literal {self.value}")
-
-	def __str__(self):
-		return self.value
-
-	def __repr__(self):
-		return f"<{self.__class__.__name__} {repr(self.value)}>"
-
-	def __eq__(self, other):
-		try:
-			return self.value == other.value
-		except AttributeError:
-			return self.compose(BuiltinOperator.EQ, other)
-
-	def __ne__(self, other):
-		try:
-			return self.value != other.value
-		except AttributeError:
-			return self.compose(BuiltinOperator.NE, other)
 
 
 #: Pattern for "usual" operators
@@ -660,10 +437,19 @@ class Operator:
 			"""Generator to get operands in usable form."""
 			for operand in operands:
 				string = str(operand)
-				# Precedence paranthesis (but not for method/function call parameters)
-				if isinstance(operand, Filter) and operand.operator.precedence > self.precedence and not self.type.call:
-					string = f"({string})"
-				yield string
+				# Yield with or without parenthesis
+				if (
+						# No parenthesis around functions/methods
+						self.type.call
+						# No parenthesis around simple literals/variables as well as operands that are not expressions
+						or isinstance(operand, (LiteralExpression, VariableExpression))
+						or not isinstance(operand, Expression)
+						# No parenthesis if the operand is an OperatorExpression with lower precedence
+						or (isinstance(operand, OperatorExpression) and operand.operator.precedence < self.precedence)
+				):
+					yield string
+				else:
+					yield f"({string})"
 
 		# Check number of operands
 		if len(operands) < self.type.minimum_operands:
@@ -712,262 +498,209 @@ class BuiltinOperator(Operator, enum.Enum):
 	AND = ("&&", Operator.Type.LOGICAL, 130, (lambda *args: all(args)))
 
 
-class Filter(Expression):
-	"""Represents an Icinga filter.
+def expression_from_string(string: str) -> Expression:
+	"""Parse an expression of unknown type from a string."""
+	try:
+		return _string_to_expression(string)
+	except IndexError:
+		# Propably a mistake with brackets, because that causes a stack.pop() that may raise IndexError
+		raise ExpressionParsingError("Invalid expression, propably a mistake using some kind of brackets")
 
-	- Filters have at minimum one operand and one operator
-		- It's possible to use filters as operands for more complex filters (usually joined with logical operators)
-		- Simple comparative operators compare the values of their two operands (==, !=, <, ...)
-		- Unary operators operate (obviously) on one operand (!, ~)
-		- Another operation is a method call on an attribute
-			- Fully implementing that without using IOM is at least very difficult, if not impossible
-			- An implementation that is at least better (not necessarily complete) can be done with IOM
-		- Similar to methods, the use of global functions is also allowed, e.g. match, regex, typeof, ...
-			- It is possible to add global functions via configuration
-			- This seems therefore impossible to fully implement
-		- And also there is the possibility that there is no operator at all, in this case it's similar to Python's
-			automatic bool() interpretation in if-clauses (e.g. empty strings are False), but also checks whether this
-			attribute is defined (True if defined, False if not)
-	- Nesting any filters with explicit precedence (using parenthesis) is possible
 
-	Taking these things into account, it is at least *very, very* difficult to implement filters in a way, that this
-	library can fully emulate the filtering of Icinga; it propably is impossible. That why, it is foolish to try, so
-	this is not the goal of this class or module, or even of this library.
-	Filtering must be done by Icinga itself, no matter what is done here.
+#: Regex pattern grouping characters into the following groups:
+#: 0. Single opening brackets: "(", "["
+#: 1. Single closing brackets: ")", "]"
+#: 2. A ,
+#: 3. A string, starting and ending with " or {{{ resp. }}}
+#: 4. Any alphanumeric characters or .
+#: 5. Everything else that is not space (multiple chars)
+_CHAR_GROUPING = re.compile(
+	r"([(\[])|([)\]])|(,)|(\".*?\"|{{{.*?}}})|([\w.]+)|([^()\[\]\"\w.\s]+)",
+	# Match line breaks with dots (for multiline strings)
+	re.DOTALL
+)
 
-	The first goal of this class is to understand what is done with a filter at a certain level:
+#: The intermediate structure produced by _string_to_expression
+#: It's a tree-like structure and as such a sequence of the same types and strings as leaves
+_STRUCTURE_TYPE = List[Union["_STRUCTURE_TYPE", str]]
 
-	- The structure of the filter
-	- What is an operator, what are its operands
 
-	The second goal is to create Icinga-compliant filter strings using this class:
+def _string_to_expression(string: str) -> Expression:
+	"""Parse string to an intermediate structure.
 
-	- Syntactical correct, but without really looking at semantics
-	- Implementing all "simple" operators, nesting filters with precedence, using attributes with Attribute objects
-
-	This class implements both nested filters and simple filters. Both are created by passing an operator and its
-	operands. The operands can be Expression objects (e.g. Filter objects) themselves, or values.
-
-	:param operator: The operator used in this filter.
-	:param operands: Operands.
+	This method works iteratively.
 	"""
+	# Opening brackets
+	BRACKETS = ("(", "[")
+	# Characers that are left untouched in this method (eliminated by helper methods)
+	CONTROL_CHARS = (*BRACKETS, ",")
 
-	#: Regex pattern grouping characters into the following groups:
-	#: 0. Opening parenthesis that don't follow an alphanumeric char
-	#: 1. Opening parenthesis that follow an alphanumeric char
-	#: 2. Closing parenthesis
-	#: 3. Any alphanumeric char or . or [ or ] or "
-	#: 4. Everything else that is not space (single commas, or multiple chars of something else)
-	_CHAR_GROUPING = re.compile(r"((?<![\w])[(])|((?<=[\w])[(])|(\))|([\w.\[\]\"]+)|(,|[^\w.\s()\[\]\"]+)")
+	# Split string into character lst
+	groups = _CHAR_GROUPING.findall(string)
+	# res contains the structure to return, cur keeps track of the "current" part in view
+	cur = res = list()
+	# Track cur references (to go up in hierarchy on closing brackets)
+	# The last item is a reference to the "parent" of cur
+	stack = list()
 
-	def __init__(
-				self,
-				operator: Operator,  # The operator
-				operands: Optional[Iterable[Any]] = None  # Operands for the operator
-			):
-		#: The operator used for this particular filter
-		self.operator = operator
-		#: The operands for the operator (including possible Filter and Attribute objects as well as values)
-		self.operands = list()
-		# Add with correct type
-		for operand in operands:
-			if isinstance(operand, Expression):
-				self.operands.append(operand)
+	for chars in groups:
+		if chars[0]:  # Opening brackets of some kind .................................................................
+			# One step down the hierarchy
+			cur.append(list())
+			# Remember the parent
+			stack.append(cur)
+			# Set view to the new child-filter-build-list
+			cur = cur[-1]
+			# Remember what kind of bracket caused this
+			cur.append(chars[0])
+		elif chars[1]:  # Closing brackets of some kind ...............................................................
+			temp = cur
+			# One step up the hierarchy
+			cur = stack.pop()
+			# Get what _closing_brackets returns using the predecessor, but take care that there might be no predecessor
+			predecessor = (
+				cur[-2]
+				if len(cur) > 1 and (isinstance(cur[-2], Expression) or cur[-2] not in CONTROL_CHARS)
+				else None
+			)
+			elements = _closing_brackets(predecessor, chars[1], temp)
+			# Substitute in cur but not the first element if it's None
+			elements = elements[(elements[0] is None):]
+			if predecessor is None:
+				cur[-1:] = elements
 			else:
-				self.operands.append(ValueOperand(operand))
-
-	@classmethod
-	def simple(cls, expression: Expression, operator: Operator, value) -> "Filter":
-		"""Creates a filter of the type <expression> <operator> value, e.g. "a=1"."""
-		return cls(operator, (expression, value))
-
-	# TODO implement simple object-oriented creation of such Filter objects
-
-	@classmethod
-	def from_string(cls, string: str) -> "Filter":
-		"""Parse string and create filter for it."""
-		try:
-			return cls._from_list(cls._to_group_split(string))
-		except (IndexError, ValueError):
-			raise ExpressionParsingError(f"Failed to parse filter: {string}")
-
-	@classmethod
-	def _to_group_split(cls, string: str) -> Sequence:
-		"""Create Filter object from character lst, helper method for from_string()."""
-		# Split string inot character lst
-		groups = cls._CHAR_GROUPING.findall(f"({string})")
-		# res contains the filter to return, cur keeps track of the "current" part in view
-		cur = res = list()
-		# Track cur references (to go up in hierarchy on closing brackets)
-		# The last item is a reference to the "parent" of cur
-		stack = list()
-		for chars in groups:
-			if chars[1]:  # (?<=[\w])[(]
-				# Previous item was a function or method
-				cur[-1] = Operator(cur[-1], Operator.Type.FUNCTION)
-			if chars[0] or chars[1]:  # (
-				# One step down the hierarchy
-				cur.append(list())
-				stack.append(cur)  # Remember the parent
-				cur = cur[-1]  # Set view to the new child-filter-build-list
-			if chars[2]:  # )
-				# One step up the hierarchy
-				cur = stack.pop()  # cur <= parent of cur
-			if chars[3]:  # Alphanumeric, ., [, ]
-				cur.append(ValueOperand(chars[3]))
-
-			if chars[4]:  # Other characters -> operator
-				try:
-					operator = Operator.from_string(chars[4])
-					cur.append(operator)
-				except KeyError:
-					# No such operator...
-					cur.append(ValueOperand(chars[4]))
-
-		return res
-
-	@classmethod
-	def _from_list(cls, lst: Union[Sequence, Expression, Operator]) -> "Filter":
-		"""Iterable of operands/operators/filter/iterables (of these) to one filter object, helper method for f
-		rom_string()."""
-		# Make sure it's mutable
-		if not hasattr(lst, "pop"):
-			lst = list(lst)
-
-		# First step: create a list with method/function calls resolved
-		prepared = list()
-		# Flag whenever
-		call = False
-		for index, sub in enumerate(lst):
-			if call:
-				call = False
-				# Previous item was call operator, current is the comma-separated parameter list
-				parameters = [list()]
-				for i, item in enumerate(sub):
-					if isinstance(item, ValueOperand) and item.value == ",":
-						parameters.append(list())
-					# elif hasattr(item, "__iter__"):
-					# 	parameters.append(cls._from_list(item))
-					else:
-						parameters[-1].append(item)
-				# Convert to filter when multiple things have been between two commas
-				for i, item in enumerate(parameters):
-					if len(item) == 1 and not hasattr(item, "__iter__"):
-						# Something like a single ValueOperand
-						parameters[i] = item[0]
-					else:
-						parameters[i] = cls._from_list(item)
-				if lst[index - 1].type.pos:
-					# Method operator: <operand>.<method>(<parameters>)
-					operator = prepared.pop(-1)
-					obj = prepared.pop(-1)
-					prepared.append(cls(operator, (obj, *parameters)))
-				else:
-					# Function operator: <function>(<parameters>)
-					prepared[-1] = cls(prepared[-1], parameters)
-				continue
-
+				cur[-2:] = elements
+			pass
+		elif chars[2]:  # A comma .....................................................................................
+			cur.append(",")
+		else:
+			# Everything else .............................................................................................
+			# The reason to put these into different capturing groups is that they match multiple chars
+			# But the different types of characters should get separated
+			s = chars[3] or chars[4] or chars[5]
 			try:
-				if sub.type.call:
-					call = True
+				# Try to interpret as a literal
+				cur.append(LiteralExpression.from_string(s))
+				continue
+			except ExpressionParsingError:
+				# Not a literal -> try as an Operator
+				try:
+					cur.append(Operator.from_string(s))
+					continue
+				except KeyError:
+					pass
+				# Failed to parse as literal and as operator -> that has to be a variable
+				cur.append(VariableExpression.from_string(s))
+
+	return _finalise_subexpression(res)
+
+
+def _closing_brackets(predecessor, bracket: str, lst: Sequence) -> Sequence:
+	"""Helper function, called on closing brackets.
+
+	Possible outcomes in this case:
+	- Array
+	- Function call
+	- Sub-expression
+	- Array subscript (variable[0])
+
+	:param predecessor: What came before the (opening) bracket, None if nothing
+	:param bracket: The closing bracket char
+	:param lst: A sequence of expressions, operators and commas inside the brackets
+
+	:return A sequence of things to append instead of predecessor and the brackets
+	"""
+	opening = lst[0]
+	closing = bracket
+	lst = lst[1:]
+	parens = opening == "("
+	if (closing == ")" and opening != "(") or (closing == "]" and opening != "["):
+		# Wrong kind
+		raise ExpressionParsingError(f"Missing closing brackets for {lst[0]}")
+
+	if len(lst) != 1 or not isinstance(lst[0], Expression):
+		# Finalise everything between commas
+		values = [(comma, list(values)) for comma, values in itertools.groupby(lst, lambda x: x == ",")]
+		values = [
+			_finalise_subexpression(sub)
+			for comma, sub
+			in values
+			# Ignore single commas
+			if not (comma and len(sub) == 1)
+		]
+	else:
+		values = lst
+
+	if isinstance(predecessor, Expression):
+		# Has to be an array subscript or function call
+		if parens:
+			# Function call
+			return predecessor(*values),
+		elif not values:
+			# Empty array subscript
+			raise ExpressionParsingError("Empty array subscription")
+		...  # TODO It's an array subscript - how to handle that???
+		raise ExpressionParsingError("Currently unable to parse array subscript")
+	if parens:
+		if values:
+			# Return the finalised sub-expression
+			return predecessor, values[0]
+		else:
+			raise ExpressionParsingError("Empty sub-expression")
+	else:
+		# Array
+		return predecessor, ArrayExpression(*values)
+
+
+def _finalise_subexpression(lst: _STRUCTURE_TYPE) -> Expression:
+	"""Helper function: finalise a (sub-)expression -
+	this is called with stuff inside closing parenthesis and between commas in an array."""
+
+	def min_operator() -> int:
+		"""Get index of the item in lst that is the operator with the smallest precedence."""
+		m_index, precedence = -1, 0
+		for i, item in enumerate(lst):
+			try:
+				if (item.precedence and not precedence) or item.precedence < precedence:
+					m_index, precedence = i, item.precedence
 			except AttributeError:
 				pass
-			prepared.append(sub)
+		return m_index
 
-		lst = prepared
-		# Second step: resolve lists recusively
-		for i, item in enumerate(lst):
-			if isinstance(item, collections.abc.Sequence):
-				lst[i] = cls._from_list(item)
+	pass
+	while True:
+		i = min_operator()
+		if i < 0:
+			# No operator in lst
+			break
 
-		# Third: Handle every other operator
-		def min_operator() -> int:
-			"""Get index of the item in lst that is the operator with the smallest precedence."""
-			m_index, precedence = -1, 0
-			for i, item in enumerate(lst):
-				try:
-					if (item.precedence and not precedence) or item.precedence < precedence:
-						m_index, precedence = i, item.precedence
-				except AttributeError:
-					pass
-			return m_index
-
-		while True:
-			i = min_operator()
-			if i < 0:
-				break
-
-			# Found operator with minimum precedence
-			operator = lst[i]
-			# Found operator in lst -> what kind of operator is it?
-			if operator.type.pos:
-				# Operator after first operand
-				if operator.type.minimum_operands == 1:
-					# <operand><operator>
-					operand = lst.pop(i - 1)
-					lst[i] = cls(operator, (operand,))
-				else:
-					# <operand1><operator><operand2>
-					operand2 = lst.pop(i + 1)
-					operand1 = lst.pop(i - 1)
-					lst[i-1] = cls(operator, (operand1, operand2))
+		# Operator to consider (lowest precedence)
+		operator = lst[i]
+		# Found operator in lst -> what kind of operator is it?
+		if operator.type.pos:
+			# Operator after first operand
+			if operator.type.minimum_operands == 1:
+				# <operand><operator>
+				operand = lst.pop(i - 1)
+				lst[i] = OperatorExpression(operator, (operand, ))
 			else:
-				# Operator before operand
-				operand = lst.pop(i + 1)
-				lst[i] = cls(operator, (operand,))
-
-		if not lst:
-			raise ExpressionParsingError("Empty list")
-		elif len(lst) == 1:
-			return lst[0]
+				# <operand1><operator><operand2>
+				operand2 = lst.pop(i + 1)
+				operand1 = lst.pop(i - 1)
+				# TODO join OperatorExpression objects if the operator is the same and accepts more than two operands
+				lst[i - 1] = OperatorExpression(operator, operand1, operand2)
 		else:
-			raise ExpressionParsingError("Something went wrong...")
+			# Operator before operand
+			operand = lst.pop(i + 1)
+			lst[i] = OperatorExpression(operator, operand)
 
-	def __str__(self):
-		"""Returns the appropriate Icinga filter string."""
-		string = self.operator.print(*self.operands)
-		return string
-
-	def execute(self, context: "FilterExecutionContext") -> bool:
-		"""Execute the filter for the given item, return True if the filter matches.
-
-		Execution may or may not succeed, depending on operator and operands of this filter and on the lookup context.
-		The lookup context is used, whenever a non-filter operand turned out to be not executable locally.
-		"""
-		# TODO implement recognizing attributes for lookup
-		# TODO refactor this code...
-		operands = list()
-		for operand in self.operands:
-			try:
-				if isinstance(operand, Filter):
-					operands.append(operand.execute(context))
-				else:
-					operands.append(operand.execute())
-			except (AttributeError, ExpressionEvaluationError):
-				if isinstance(operand, Filter):
-					raise ExpressionEvaluationError("Unable to execute filter")
-				try:
-					operands.append(context[operand])
-				except KeyError:
-					raise ExpressionEvaluationError("Unable to interpret operand, and context lookup failed.")
-		try:
-			return self.operator.operate(*operands)
-		except TypeError:
-			raise ExpressionEvaluationError("Operator not executable")
-
-	def execute_many(self, context: Optional["FilterExecutionContext"] = None) -> Callable[[Mapping], bool]:
-		"""Get a filter function to execute this filter for many items.
-
-		This method was introduced for use of the returned callable in a Python filter statement as a filter function.
-		The context given here is expected to only have a primary context, and the objects for which the filter function
-		is applied are used as the secondary context.
-		:meth:`execute` is used for filter execution with the resulting context.
-		"""
-		def execute(mapping) -> bool:
-			"""Execute a filter function."""
-			return self.execute(context.with_secondary(mapping))
-
-		return execute
+	# Return the finalised (sub-)expression
+	if not lst:
+		raise ExpressionParsingError("Empty sub-expression")
+	elif len(lst) == 1:
+		return lst[0]
+	else:
+		raise ExpressionParsingError("Invalid expression: missing operator or comma")
 
 
 class FilterExecutionContext(collections.abc.MutableMapping):
