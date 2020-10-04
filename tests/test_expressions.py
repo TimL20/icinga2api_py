@@ -92,7 +92,7 @@ def test_operator_basics():
 	def func(*args):
 		return args
 
-	o = Operator("##", Operator.Type.COMPARISON, 1, func)
+	o = Operator("##", Operator.Type.BINARY, 1, func)
 	assert o.symbol == "##"
 	assert str(o) == "##"
 	assert o.operate is func
@@ -102,13 +102,13 @@ def test_operator_basics():
 	assert Operator.from_string("##") is o
 	assert o.register() is True
 	# Register returns False if not registered...
-	assert Operator("##", Operator.Type.COMPARISON).register() is False
+	assert Operator("##", Operator.Type.BINARY).register() is False
 	# Except when forced
-	assert Operator("##", Operator.Type.COMPARISON).register(force=True) is True
+	assert Operator("##", Operator.Type.BINARY).register(force=True) is True
 
 	assert o.operate(0, 1, 2) == (0, 1, 2)
 
-	assert o == Operator("##", Operator.Type.COMPARISON, 1, func)
+	assert o == Operator("##", Operator.Type.BINARY, 1, func)
 	assert o != 1
 
 
@@ -139,46 +139,30 @@ def test_operator_print_unary():
 		_ = op.print(1, 2)  # Too many operands
 
 
-def test_operator_print_comparison():
-	"""Test Operator.print() for comparison operator type."""
+def test_operator_print_binary():
+	"""Test Operator.print() for binary operator type."""
 	with pytest.raises(ValueError):
-		_ = Operator("a", Operator.Type.UNARY)  # Would be indistuingishable from the operand
+		_ = Operator("a", Operator.Type.BINARY)  # Would be indistuingishable from the operand
 
-	op = Operator("+", Operator.Type.COMPARISON)
+	op = Operator("+", Operator.Type.BINARY)
 	assert op.print(1, 2).replace(" ", "") == "1+2"
 
 	with pytest.raises(TypeError):
 		_ = op.print(1)  # Too less operands
+	with pytest.raises(TypeError):
+		_ = op.print(1, 2, 3)  # Too many operands
 
 
-def test_operator_print_logical():
-	"""Test Operator.print() for logical operator type."""
+def test_operator_print_multary():
+	"""Test Operator.print() for mulary operator type."""
 	with pytest.raises(ValueError):
-		_ = Operator("a", Operator.Type.LOGICAL)  # Would be indistuingishable from the operand
+		_ = Operator("a", Operator.Type.MULTARY)  # Would be indistuingishable from the operand
 
-	op = Operator("+", Operator.Type.LOGICAL)
+	op = Operator("+", Operator.Type.MULTARY)
 	assert op.print(1, 2).replace(" ", "") == "1+2"
 
 	with pytest.raises(TypeError):
 		_ = op.print(1)  # Too less operands
-
-
-def test_operator_print_function():
-	"""Test Operator.print() for function operator type."""
-	with pytest.raises(ValueError):
-		_ = Operator("+", Operator.Type.FUNCTION)  # Function name needs to consist of alphanumerical characters
-
-	op = Operator("a", Operator.Type.FUNCTION)
-	assert op.print("b") == "a(b)"
-
-
-def test_operator_print_method():
-	"""Test Operator.print() for method operator type."""
-	with pytest.raises(ValueError):
-		_ = Operator("+", Operator.Type.METHOD)  # Function name needs to consist of alphanumerical characters
-
-	op = Operator("a", Operator.Type.METHOD)
-	assert op.print("b") == "b.a()"
 
 
 # TODO add Expression basics test

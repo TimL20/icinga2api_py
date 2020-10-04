@@ -323,9 +323,7 @@ class OperatorExpression(Expression):
 
 
 #: Pattern for "usual" operators
-_USUAL_OPERATOR_PATTERN = re.compile(r"[a-zA-Z_][\w_]*")
-#: Pattern for functions and methods
-_FUNCTION_PATTERN = re.compile(r"[^\w\s().,[\]]+")
+_USUAL_OPERATOR_PATTERN = re.compile(r"[^\w\s().,[\]]+")
 
 
 class Operator:
@@ -335,52 +333,45 @@ class Operator:
 		"""Type of Operator.
 
 		Each bit has a meaning as follows (in LSBF order):
-		1) Whether the operator should (but not neccesarily must) be separated by spaces
+		1) Whether the operator accepts more than two operands
 		2) Whether the operator is written after the first operand
-		3) Whether the operator is some type of function call
 		"""
 
 		#: Unary operators
-		UNARY = 0b000
-		#: Comparative operators (e.g. a==b)
-		COMPARISON = 0b010
-		#: Non-unary logical operators (e.g. a||b)
-		LOGICAL = 0b011
-		#: Function (e.g. len(a))
-		FUNCTION = 0b100
-		#: Method (executed *on* an attribute, not with; e.g. dict.contains(e))
-		METHOD = 0b110
+		UNARY = 0b00
+		#: Binary operators (e.g. a==b)
+		BINARY = 0b10
+		#: Operator accepting operators (e.g. a||b||c)
+		MULTARY = 0b11
 
 		@property
 		def spaced(self) -> bool:
 			"""True if this kind of operator should be separated by spaces."""
-			return bool(0b1 & self)
+			return self is not self.UNARY
 
 		@property
 		def pos(self) -> bool:
 			"""False if the operator is written before the first operand, True otherwise."""
 			return bool(0b10 & self)
 
-		@property
-		def call(self) -> bool:
-			"""True if this operator requires a function call."""
-			return bool(0b100 & self)
+		def check_operands_number(self, n) -> int:
+			"""Check whether the given number of operands is OK for this operator.
 
-		@property
-		def minimum_operands(self) -> int:
-			"""Return the number of minimum operands needed."""
-			if self == self.UNARY or self.call:
-				return 1
-			else:
-				return 2
+			:return The difference to the expected number of operands (-> 0 means alright)
+			"""
+			minimum = 1 if self == self.UNARY else 2
+			if n - minimum < 0:
+				return n - minimum
+			if self is self.MULTARY:
+				return 0
+			needed = 1 if self is self.UNARY else 2
+			return n - needed
 
 		@property
 		def pattern(self):
 			"""Return pattern this operator type is required to match."""
-			if self.call:
-				return _USUAL_OPERATOR_PATTERN
 			# Usual operator: no alphanumeric character, no space, no brackets, no dot, no comma
-			return _FUNCTION_PATTERN
+			return _USUAL_OPERATOR_PATTERN
 
 	#: Translate operator string -> Operator object
 	_OPERATOR_TRANSLATION = dict()
@@ -395,12 +386,15 @@ class Operator:
 		#: Type of this operator
 		self.type = type_
 		#: Precedence of this operator
-		self.precedence = precedence or (10 if type_.call else 99)
+		self.precedence = precedence or 99
 		#: Function that executes the operation
 		self.operate = func
 
 	def register(self, force=False):
 		"""Register this operator for translation (used in filter parsing etc.)."""
+		# TODO this allows only one operator per symbol... which is not how it works with Icinga
+		# 	However this has very low priority
+		# 	The way to solve this is distinct the types of the operators, because those can't also be the same
 		if force:
 			self._OPERATOR_TRANSLATION[self.symbol] = self
 			return True
@@ -439,10 +433,8 @@ class Operator:
 				string = str(operand)
 				# Yield with or without parenthesis
 				if (
-						# No parenthesis around functions/methods
-						self.type.call
 						# No parenthesis around simple literals/variables as well as operands that are not expressions
-						or isinstance(operand, (LiteralExpression, VariableExpression))
+						isinstance(operand, (LiteralExpression, VariableExpression))
 						or not isinstance(operand, Expression)
 						# No parenthesis if the operand is an OperatorExpression with lower precedence
 						or (isinstance(operand, OperatorExpression) and operand.operator.precedence < self.precedence)
@@ -452,26 +444,18 @@ class Operator:
 					yield f"({string})"
 
 		# Check number of operands
-		if len(operands) < self.type.minimum_operands:
-			raise TypeError(f"{self.type.name.title()} operator needs more than {len(operands)} operand(s)")
+		if self.type.check_operands_number(len(operands)) != 0:
+			raise TypeError(f"{self.type.name.title()} operator doesn't allow {len(operands)} operand(s)")
 		if self.type.pos:
-			if self.type.call:
-				# Method: <attribute>.<method>(value1, value2, ...)
-				return f"{str(operands[0])}.{self.symbol}({', '.join(list(ops())[1:])})"
-			else:  # call
-				if self.type.spaced:
-					return f" {self.symbol} ".join(ops())
-				else:  # spaced
-					return f"{self.symbol}".join(ops())
+			if self.type.spaced:
+				return f" {self.symbol} ".join(ops())
+			else:  # spaced
+				return f"{self.symbol}".join(ops())
 		else:  # pos
-			if self.type.call:
-				# Function: <function>(<operand1>, <operand2>, ...)
-				return f"{self.symbol}({', '.join(ops())})"
-			else:  # call
-				# Unary operator: <operator><attribute>
-				if len(operands) > 1:
-					raise TypeError(f"Unary operator needs exactly one operand")
-				return f"{self.symbol}{list(ops())[0]}"
+			# Unary operator: <operator><attribute>
+			if len(operands) > 1:
+				raise TypeError(f"Unary operator needs exactly one operand")
+			return f"{self.symbol}{list(ops())[0]}"
 
 
 class BuiltinOperator(Operator, enum.Enum):
@@ -486,16 +470,21 @@ class BuiltinOperator(Operator, enum.Enum):
 
 	# Simple unary operators
 	NOT = ("!", Operator.Type.UNARY, 20, (lambda x: not x))
+	# Simple calculations
+	ADD = ("+", Operator.Type.BINARY, 40, op.add)
+	SUBTRACT = ("+", Operator.Type.BINARY, 40, op.sub)
+	MULIPLY = ("*", Operator.Type.BINARY, 50, op.mul)
+	DIVIDE = ("/", Operator.Type.BINARY, 50, op.truediv)
 	# Simple comparison
-	LT = ("<", Operator.Type.COMPARISON, 60, op.lt)
-	LE = ("<=", Operator.Type.COMPARISON, 60, op.le)
-	EQ = ("==", Operator.Type.COMPARISON, 60, op.eq)
-	NE = ("!=", Operator.Type.COMPARISON, 60, op.ne)
-	GE = (">=", Operator.Type.COMPARISON, 60, op.ge)
-	GT = (">", Operator.Type.COMPARISON, 60, op.gt)
+	LT = ("<", Operator.Type.BINARY, 60, op.lt)
+	LE = ("<=", Operator.Type.BINARY, 60, op.le)
+	EQ = ("==", Operator.Type.BINARY, 60, op.eq)
+	NE = ("!=", Operator.Type.BINARY, 60, op.ne)
+	GE = (">=", Operator.Type.BINARY, 60, op.ge)
+	GT = (">", Operator.Type.BINARY, 60, op.gt)
 	# Simple logical operators
-	OR = ("||", Operator.Type.LOGICAL, 120, (lambda *args: any(args)))
-	AND = ("&&", Operator.Type.LOGICAL, 130, (lambda *args: all(args)))
+	OR = ("||", Operator.Type.MULTARY, 120, (lambda *args: any(args)))
+	AND = ("&&", Operator.Type.MULTARY, 130, (lambda *args: all(args)))
 
 
 def expression_from_string(string: str) -> Expression:
@@ -679,7 +668,7 @@ def _finalise_subexpression(lst: _STRUCTURE_TYPE) -> Expression:
 		# Found operator in lst -> what kind of operator is it?
 		if operator.type.pos:
 			# Operator after first operand
-			if operator.type.minimum_operands == 1:
+			if operator.type is Operator.Type.UNARY:
 				# <operand><operator>
 				operand = lst.pop(i - 1)
 				lst[i] = OperatorExpression(operator, (operand, ))
@@ -687,7 +676,7 @@ def _finalise_subexpression(lst: _STRUCTURE_TYPE) -> Expression:
 				# <operand1><operator><operand2>
 				operand2 = lst.pop(i + 1)
 				operand1 = lst.pop(i - 1)
-				# TODO join OperatorExpression objects if the operator is the same and accepts more than two operands
+				# Join OperatorExpression objects if the operator is the same and accepts more than two operands
 				lst[i - 1] = OperatorExpression(operator, operand1, operand2)
 		else:
 			# Operator before operand
