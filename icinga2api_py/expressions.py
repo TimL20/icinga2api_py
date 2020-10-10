@@ -183,7 +183,42 @@ class LiteralExpression(Expression):
 			return NotImplemented
 
 
-class VariableExpression(Expression):
+class ArrayExpression(Expression):
+	"""Array expression (ordered list of values, comma-separated)."""
+
+	def __init__(self, *values):
+		super().__init__("")
+		self.values = values
+
+	def __str__(self):
+		return f"[{', '.join(self.values)}]"
+
+	def evaluate(self, context: Mapping):
+		ret = list()
+		for val in self.values:
+			try:
+				ret.append(val.evaluate(context))
+			except AttributeError:
+				ret.append(val)
+		return ret
+
+	def __getitem__(self, item):
+		return OperatorExpression(Indexer.SUBSCRIPT, self, item)
+
+
+class _VariableExpressionMixin:
+	"""Mixin for expression with a type unknown at parsing time."""
+
+	def __call__(self: Expression, *args) -> "FunctionCallExpression":
+		"""Like in Python: Functions behave the same as callable variables."""
+		return FunctionCallExpression(self.symbol, *args)
+
+	def __getitem__(self: Expression, item):
+		"""Array subscript or dictionary indexing."""
+		return OperatorExpression(Indexer.SUBSCRIPT, self, item)
+
+
+class VariableExpression(Expression, _VariableExpressionMixin):
 	"""A variable in an expression."""
 
 	#: What is valid as a variable here:
@@ -216,16 +251,8 @@ class VariableExpression(Expression):
 		else:
 			raise ExpressionParsingError(f"Invalid variable expression: {string}")
 
-	def __call__(self, *args) -> "FunctionCallExpression":
-		"""Like in Python: Functions behave the same as callable variables."""
-		return FunctionCallExpression(self.symbol, *args)
 
-	def __getitem__(self, item):
-		"""Array subscript or dictionary indexing."""
-		...  # TODO implement
-
-
-class FunctionCallExpression(VariableExpression):
+class FunctionCallExpression(VariableExpression, _VariableExpressionMixin):
 	"""Function or method call."""
 
 	def __init__(self, symbol, *args):
@@ -243,30 +270,7 @@ class FunctionCallExpression(VariableExpression):
 			raise ExpressionEvaluationError(f"Symbol {self.symbol} is not callable with {len(self.args)} arguments")
 
 
-class ArrayExpression(Expression):
-	"""Array expression (ordered list of values, comma-separated)."""
-
-	def __init__(self, *values):
-		super().__init__("")
-		self.values = values
-
-	def __str__(self):
-		return f"[{', '.join(self.values)}]"
-
-	def evaluate(self, context: Mapping):
-		ret = list()
-		for val in self.values:
-			try:
-				ret.append(val.evaluate(context))
-			except AttributeError:
-				ret.append(val)
-		return ret
-
-	def __getitem__(self, item):
-		return self.values[item]
-
-
-class OperatorExpression(Expression):
+class OperatorExpression(Expression, _VariableExpressionMixin):
 	"""Represents an expression that consists of at least one operator and one other expression.
 
 	:param operator: The operator used in this filter.
@@ -335,7 +339,7 @@ class Operator:
 		def pattern(self):
 			"""Return pattern this operator type is required to match."""
 			# Usual operator: no alphanumeric character, no space, no brackets, no dot, no comma
-			return re.compile(r"[^\w\s().,[\]]+")
+			return re.compile(r"[^\w\s(),]+")
 
 	#: Get an Operator object by a tuple of two things:
 	#: 1. Its string representation
@@ -449,7 +453,7 @@ class BuiltinOperator(Operator, enum.Enum):
 	NOT = ("!", Operator.Type.UNARY, 2, (lambda x: not x))
 	# Simple calculations
 	ADD = ("+", Operator.Type.BINARY, 4, op.add)
-	SUBTRACT = ("+", Operator.Type.BINARY, 4, op.sub)
+	SUBTRACT = ("-", Operator.Type.BINARY, 4, op.sub)
 	MULIPLY = ("*", Operator.Type.BINARY, 5, op.mul)
 	DIVIDE = ("/", Operator.Type.BINARY, 5, op.truediv)
 	# Simple comparison
@@ -464,6 +468,32 @@ class BuiltinOperator(Operator, enum.Enum):
 	AND = ("&&", Operator.Type.BINARY, 13, (lambda *args: all(args)))
 	# Ternary operator
 	TERNARY = ("?:", Operator.Type.TERNARY, 16)
+
+
+class Indexer(Operator, enum.Enum):
+	"""Indexer(s) are the operators for subscription and attribute access."""
+
+	def __new__(cls, *args):
+		return Operator.__new__(cls)
+
+	def __init__(self, symbol):
+		Operator.__init__(self, self.value.format("", ""), Operator.Type.MISCELLANEOUS, 1, self._operate)
+		self.register(True)
+
+	SUBSCRIPT = "{}[{}]"
+	INDEX = "{}.{}"
+
+	@staticmethod
+	def _operate(array, index):
+		try:
+			return array[index]
+		except (IndexError, KeyError, TypeError):
+			raise ExpressionEvaluationError("Array subscript failed")
+
+	def print(self, *operands):
+		if len(operands) != 2:
+			raise TypeError(f"Expected 2 operands for index operator, got {len(operands)}")
+		return self.value.format(*self.operand_strings(operands))
 
 
 def expression_from_string(string: str) -> Expression:
@@ -607,15 +637,21 @@ def _closing_brackets(predecessor, bracket: str, lst: Sequence) -> Sequence:
 		values = lst
 
 	if isinstance(predecessor, Expression):
-		# Has to be an array subscript or function call
-		if parens:
-			# Function call
-			return predecessor(*values),
-		elif not values:
-			# Empty array subscript
-			raise ExpressionParsingError("Empty array subscription")
-		...  # TODO It's an array subscript - how to handle that???
-		raise ExpressionParsingError("Currently unable to parse array subscript")
+		try:
+			# Has to be an array subscript or function call
+			if parens:
+				# Function call
+				return predecessor(*values),
+			elif not values:
+				# Empty array subscript
+				raise ExpressionParsingError("Empty array subscription")
+			elif len(values) > 1:
+				raise ExpressionParsingError("Invalid array or dictionary subscript")
+			# Array subscript
+			return predecessor[values[0]]
+		except TypeError:
+			# Array subscript / function call failed
+			raise ExpressionParsingError("Invalid array subscript or function call")
 	if parens:
 		if values:
 			# Return the finalised sub-expression

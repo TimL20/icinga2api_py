@@ -123,10 +123,25 @@ def test_operator_basics():
 		(">", (1, 0), True), (">", (0, 1), False),
 		("&&", (1, 1, 1), True), ("&&", (1, 0, 1), False),
 		("||", (1, 0, 0), True), ("||", (0, 0, 0), False),
+		# Arithmetic
+		("+", (1, 2), 3), ("-", (3, 2), 1),
+		("*", (2, 3), 6), ("/", (6, 3), 2),
 ))
 def test_operators_concrete(string, args, res):
 	"""Test concrete operators."""
 	assert Operator.get(string, False).operate(*args) == res
+
+
+def _operator_print_test_helper(operator, too_less, too_much):
+	"""Test that operator raises TypeError with too less or too much operands."""
+	too_less = list(range(too_less))
+	too_much = list(range(too_much))
+
+	with pytest.raises(TypeError):
+		_ = operator.print(*too_less)
+
+	with pytest.raises(TypeError):
+		_ = operator.print(*too_much)
 
 
 def test_operator_print_unary():
@@ -137,8 +152,7 @@ def test_operator_print_unary():
 	op = Operator("+", Operator.Type.UNARY)
 	assert op.print(1) == "+1"
 
-	with pytest.raises(TypeError):
-		_ = op.print(1, 2)  # Too many operands
+	_operator_print_test_helper(op, 0, 2)
 
 
 def test_operator_print_binary():
@@ -149,10 +163,43 @@ def test_operator_print_binary():
 	op = Operator("+", Operator.Type.BINARY)
 	assert op.print(1, 2).replace(" ", "") == "1+2"
 
+	_operator_print_test_helper(op, 1, 3)
+
+
+def test_operator_print_ternary():
+	"""Test Operator.print() for ternary type."""
+	op = Operator("§$", Operator.Type.TERNARY)
+	assert op.print(1, 2, 3).replace(" ", "") == "1§2$3"
+
+	_operator_print_test_helper(op, 2, 4)
+
+
+@pytest.mark.parametrize("operator", (
+	Operator.get("[]", False), Operator.get(".", False),
+))
+def test_operator_indexer(operator):
+	"""Test the "indexer" operators."""
+	d = {1: 2, 3: 4, 5: 6}
+	a = [7, 8, 9]
+
+	assert operator.operate(a, 0) == 7
+	assert operator.operate(d, 1) == 2
+
+	with pytest.raises(ExpressionEvaluationError):
+		_ = operator.operate(a, 3)
+
+	with pytest.raises(ExpressionEvaluationError):
+		_ = operator.operate(d, 0)
+
+	# Test print
+	string = operator.print(1, 2)
+	assert string in {"1.2", "1[2]"}
+
 	with pytest.raises(TypeError):
-		_ = op.print(1)  # Too less operands
+		_ = operator.print(1)  # Too less operands
+
 	with pytest.raises(TypeError):
-		_ = op.print(1, 2, 3)  # Too many operands
+		_ = operator.print(1, 2, 3)
 
 
 # TODO add Expression basics test
@@ -208,7 +255,8 @@ def test_parsing_fails(string):
 		(
 				"a.b==c.d ||(e.f.g(hi,j)&&kl(m.n,!o.p,q.r)&&s.t)||u.v<1||s==\"s\"",
 				"(a.b==c.d)||(e.f.g(hi,j)&&kl(m.n,!o.p,q.r)&&s.t)||(u.v<1)||(s==\"s\")"
-		)
+		),
+		("[5, 6, 7][1] == 6", "([5, 6, 7])[1] == 6")
 ))
 def test_parsing_complex(string1, string2):
 	"""Test parsing and printing more complex expressions."""
