@@ -301,19 +301,16 @@ class Operator:
 	"""Operator used in filters."""
 
 	class Type(enum.IntEnum):
-		"""Type of Operator.
+		"""Type of Operator."""
 
-		Each bit has a meaning as follows (in LSBF order):
-		1) Whether the operator accepts more than two operands
-		2) Whether the operator is written after the first operand
-		"""
-
-		#: Unary operators
+		#: Unary operators (e.g. !a)
 		UNARY = 0b00
 		#: Binary operators (e.g. a==b)
-		BINARY = 0b10
-		#: Operator accepting operators (e.g. a||b||c)
-		MULTARY = 0b11
+		BINARY = 0b01
+		#: Ternary operators (a ? b : c)
+		TERNARY = 0b10
+		#: Not really one of the others
+		MISCELLANEOUS = 0b11
 
 		@property
 		def spaced(self) -> bool:
@@ -323,20 +320,16 @@ class Operator:
 		@property
 		def pos(self) -> bool:
 			"""False if the operator is written before the first operand, True otherwise."""
-			return bool(0b10 & self)
+			return self is not self.UNARY
 
 		def check_operands_number(self, n) -> int:
 			"""Check whether the given number of operands is OK for this operator.
 
 			:return The difference to the expected number of operands (-> 0 means alright)
 			"""
-			minimum = 1 if self == self.UNARY else 2
-			if n - minimum < 0:
-				return n - minimum
-			if self is self.MULTARY:
+			if self is self.MISCELLANEOUS:
 				return 0
-			needed = 1 if self is self.UNARY else 2
-			return n - needed
+			return n - (int(self) + 1)
 
 		@property
 		def pattern(self):
@@ -402,37 +395,44 @@ class Operator:
 	def __str__(self):
 		return self.symbol
 
+	def operand_strings(self, ops: Iterable) -> Generator[str, None, None]:
+		"""Generator yielding operands as strings with or without brackets."""
+		for operand in ops:
+			string = str(operand)
+			# Yield with or without parenthesis
+			if (
+					# No parenthesis around simple literals/variables as well as operands that are not expressions
+					isinstance(operand, (LiteralExpression, VariableExpression))
+					or not isinstance(operand, Expression)
+					# No parenthesis if the operand is an OperatorExpression with lower precedence
+					or (isinstance(operand, OperatorExpression) and operand.operator.precedence < self.precedence)
+			):
+				yield string
+			else:
+				yield f"({string})"
+
 	def print(self, *operands):
 		"""Return a string that represents the operation done on the given args."""
-		def ops() -> Generator[str, None, None]:
-			"""Generator to get operands in usable form."""
-			for operand in operands:
-				string = str(operand)
-				# Yield with or without parenthesis
-				if (
-						# No parenthesis around simple literals/variables as well as operands that are not expressions
-						isinstance(operand, (LiteralExpression, VariableExpression))
-						or not isinstance(operand, Expression)
-						# No parenthesis if the operand is an OperatorExpression with lower precedence
-						or (isinstance(operand, OperatorExpression) and operand.operator.precedence < self.precedence)
-				):
-					yield string
-				else:
-					yield f"({string})"
-
+		# First check that this print method is able to handle this operator
+		if self.type is self.Type.MISCELLANEOUS:
+			raise ValueError("For operator of type miscellaneous it's mandatory to overwrite print()")
 		# Check number of operands
 		if self.type.check_operands_number(len(operands)) != 0:
 			raise TypeError(f"{self.type.name.title()} operator doesn't allow {len(operands)} operand(s)")
-		if self.type.pos:
+		if self.type is self.Type.TERNARY:
+			a, b, c = self.operand_strings(operands)
+			s1, s2 = self.symbol
+			return f"{a} {s1} {b} {s2} {c}"
+		elif self.type is not self.Type.UNARY:
 			if self.type.spaced:
-				return f" {self.symbol} ".join(ops())
+				return f" {self.symbol} ".join(self.operand_strings(operands))
 			else:  # spaced
-				return f"{self.symbol}".join(ops())
+				return f"{self.symbol}".join(self.operand_strings(operands))
 		else:  # pos
 			# Unary operator: <operator><attribute>
 			if len(operands) > 1:
 				raise TypeError(f"Unary operator needs exactly one operand")
-			return f"{self.symbol}{list(ops())[0]}"
+			return f"{self.symbol}{list(self.operand_strings(operands))[0]}"
 
 
 class BuiltinOperator(Operator, enum.Enum):
@@ -446,22 +446,24 @@ class BuiltinOperator(Operator, enum.Enum):
 		self.register(True)
 
 	# Simple unary operators
-	NOT = ("!", Operator.Type.UNARY, 20, (lambda x: not x))
+	NOT = ("!", Operator.Type.UNARY, 2, (lambda x: not x))
 	# Simple calculations
-	ADD = ("+", Operator.Type.BINARY, 40, op.add)
-	SUBTRACT = ("+", Operator.Type.BINARY, 40, op.sub)
-	MULIPLY = ("*", Operator.Type.BINARY, 50, op.mul)
-	DIVIDE = ("/", Operator.Type.BINARY, 50, op.truediv)
+	ADD = ("+", Operator.Type.BINARY, 4, op.add)
+	SUBTRACT = ("+", Operator.Type.BINARY, 4, op.sub)
+	MULIPLY = ("*", Operator.Type.BINARY, 5, op.mul)
+	DIVIDE = ("/", Operator.Type.BINARY, 5, op.truediv)
 	# Simple comparison
-	LT = ("<", Operator.Type.BINARY, 60, op.lt)
-	LE = ("<=", Operator.Type.BINARY, 60, op.le)
-	EQ = ("==", Operator.Type.BINARY, 60, op.eq)
-	NE = ("!=", Operator.Type.BINARY, 60, op.ne)
-	GE = (">=", Operator.Type.BINARY, 60, op.ge)
-	GT = (">", Operator.Type.BINARY, 60, op.gt)
+	LT = ("<", Operator.Type.BINARY, 6, op.lt)
+	LE = ("<=", Operator.Type.BINARY, 6, op.le)
+	EQ = ("==", Operator.Type.BINARY, 6, op.eq)
+	NE = ("!=", Operator.Type.BINARY, 6, op.ne)
+	GE = (">=", Operator.Type.BINARY, 6, op.ge)
+	GT = (">", Operator.Type.BINARY, 6, op.gt)
 	# Simple logical operators
-	OR = ("||", Operator.Type.MULTARY, 120, (lambda *args: any(args)))
-	AND = ("&&", Operator.Type.MULTARY, 130, (lambda *args: all(args)))
+	OR = ("||", Operator.Type.BINARY, 12, (lambda *args: any(args)))
+	AND = ("&&", Operator.Type.BINARY, 13, (lambda *args: all(args)))
+	# Ternary operator
+	TERNARY = ("?:", Operator.Type.TERNARY, 16)
 
 
 def expression_from_string(string: str) -> Expression:

@@ -155,18 +155,6 @@ def test_operator_print_binary():
 		_ = op.print(1, 2, 3)  # Too many operands
 
 
-def test_operator_print_multary():
-	"""Test Operator.print() for mulary operator type."""
-	with pytest.raises(ValueError):
-		_ = Operator("a", Operator.Type.MULTARY)  # Would be indistuingishable from the operand
-
-	op = Operator("+", Operator.Type.MULTARY)
-	assert op.print(1, 2).replace(" ", "") == "1+2"
-
-	with pytest.raises(TypeError):
-		_ = op.print(1)  # Too less operands
-
-
 # TODO add Expression basics test
 
 # TODO add Expression to str test
