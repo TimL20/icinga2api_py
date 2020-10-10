@@ -60,7 +60,7 @@ import abc
 import collections.abc
 import enum
 import itertools
-from typing import Union, Optional, Any, Sequence, Iterable, Generator, Callable, Mapping, MutableMapping, List
+from typing import Union, Optional, Any, Sequence, Iterable, Generator, Callable, Mapping, MutableMapping, List, Tuple
 import operator as op
 import re
 
@@ -322,10 +322,6 @@ class OperatorExpression(Expression):
 			raise ExpressionEvaluationError("Operator not executable")
 
 
-#: Pattern for "usual" operators
-_USUAL_OPERATOR_PATTERN = re.compile(r"[^\w\s().,[\]]+")
-
-
 class Operator:
 	"""Operator used in filters."""
 
@@ -371,9 +367,11 @@ class Operator:
 		def pattern(self):
 			"""Return pattern this operator type is required to match."""
 			# Usual operator: no alphanumeric character, no space, no brackets, no dot, no comma
-			return _USUAL_OPERATOR_PATTERN
+			return re.compile(r"[^\w\s().,[\]]+")
 
-	#: Translate operator string -> Operator object
+	#: Get an Operator object by a tuple of two things:
+	#: 1. Its string representation
+	#: 2. A bool whether this is a unary operator
 	_OPERATOR_TRANSLATION = dict()
 
 	def __init__(self, symbol, type_: Type, precedence: Optional[int] = None, func: Optional[Callable] = None):
@@ -390,21 +388,25 @@ class Operator:
 		#: Function that executes the operation
 		self.operate = func
 
-	def register(self, force=False):
-		"""Register this operator for translation (used in filter parsing etc.)."""
-		# TODO this allows only one operator per symbol... which is not how it works with Icinga
-		# 	However this has very low priority
-		# 	The way to solve this is distinct the types of the operators, because those can't also be the same
+	def register(self, force=False) -> bool:
+		"""Register this operator for translation (used in filter parsing etc.).
+
+		:param force: True to overwrite previous registrations
+		:returns True on success, False otherwise
+		"""
+		key = (self.symbol, self.type is Operator.Type.UNARY)
 		if force:
-			self._OPERATOR_TRANSLATION[self.symbol] = self
+			self._OPERATOR_TRANSLATION[key] = self
 			return True
-		self._OPERATOR_TRANSLATION.setdefault(self.symbol, self)
-		return self._OPERATOR_TRANSLATION[self.symbol] is self
+		return self._OPERATOR_TRANSLATION.setdefault(key, self) is self
 
 	@classmethod
-	def from_string(cls, string) -> "Operator":
-		"""Get registered operator by string, raises KeyError if not found."""
-		return cls._OPERATOR_TRANSLATION[string]
+	def get(cls, symbol, unary: bool, default=None):
+		"""Get Operator object by symbol and whether it's an unary operator."""
+		try:
+			return cls._OPERATOR_TRANSLATION[(symbol, unary)]
+		except KeyError:
+			return default
 
 	@classmethod
 	def all_operators(cls) -> Iterable["Operator"]:
@@ -572,12 +574,13 @@ def _string_to_expression(string: str) -> Expression:
 				cur.append(LiteralExpression.from_string(s))
 				continue
 			except ExpressionParsingError:
-				# Not a literal -> try as an Operator
-				try:
-					cur.append(Operator.from_string(s))
+				# Not a literal -> try as an Operator...
+				# It's unary if it's not preceeed by an expression
+				unary = not (len(cur) and isinstance(cur[-1], Expression))
+				operator = Operator.get(s, unary)
+				if operator is not None:
+					cur.append(operator)
 					continue
-				except KeyError:
-					pass
 				# Failed to parse as literal and as operator -> that has to be a variable
 				cur.append(VariableExpression.from_string(s))
 
@@ -665,23 +668,17 @@ def _finalise_subexpression(lst: _STRUCTURE_TYPE) -> Expression:
 
 		# Operator to consider (lowest precedence)
 		operator = lst[i]
-		# Found operator in lst -> what kind of operator is it?
-		if operator.type.pos:
-			# Operator after first operand
-			if operator.type is Operator.Type.UNARY:
-				# <operand><operator>
-				operand = lst.pop(i - 1)
-				lst[i] = OperatorExpression(operator, (operand, ))
-			else:
-				# <operand1><operator><operand2>
-				operand2 = lst.pop(i + 1)
-				operand1 = lst.pop(i - 1)
-				# Join OperatorExpression objects if the operator is the same and accepts more than two operands
-				lst[i - 1] = OperatorExpression(operator, operand1, operand2)
-		else:
-			# Operator before operand
+
+		if operator.type is Operator.Type.UNARY:
+			# <operator><operand>
 			operand = lst.pop(i + 1)
 			lst[i] = OperatorExpression(operator, operand)
+		else:
+			# <operand1><operator><operand2>
+			operand2 = lst.pop(i + 1)
+			operand1 = lst.pop(i - 1)
+			# Join OperatorExpression objects if the operator is the same and accepts more than two operands
+			lst[i - 1] = OperatorExpression(operator, operand1, operand2)
 
 	# Return the finalised (sub-)expression
 	if not lst:

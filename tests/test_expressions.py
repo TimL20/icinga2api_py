@@ -99,7 +99,8 @@ def test_operator_basics():
 
 	# Registration
 	assert o.register() is True
-	assert Operator.from_string("##") is o
+	assert Operator.get("##", False, 1) is o
+	assert Operator.get("##", True, 1) == 1
 	assert o.register() is True
 	# Register returns False if not registered...
 	assert Operator("##", Operator.Type.BINARY).register() is False
@@ -124,7 +125,7 @@ def test_operator_basics():
 ))
 def test_operators_concrete(string, args, res):
 	"""Test concrete operators."""
-	assert Operator.from_string(string).operate(*args) == res
+	assert Operator.get(string, False).operate(*args) == res
 
 
 def test_operator_print_unary():
