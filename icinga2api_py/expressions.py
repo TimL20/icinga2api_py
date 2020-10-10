@@ -3,6 +3,7 @@
 
 Written with a glance on https://github.com/Icinga/icinga2/blob/master/lib/config/expression.hpp
 and https://github.com/Icinga/icinga2/blob/master/lib/config/expression.cpp
+as well as https://github.com/Icinga/icinga2/blob/master/lib/config/config_lexer.ll
 
 Expressions can come very different:
 	- Expressions can be joined to more complex expressions, usually with a logical operator
@@ -54,6 +55,7 @@ The following things are currently not implemented and have no note to get imple
 - Conditional expressions (incl. lambda)
 - Loops
 - Imports, Exceptions, Apply rules, namespaces, Library expression, Include expression, Try-except expression
+- Comments
 """
 
 import abc
@@ -133,34 +135,6 @@ class Expression(abc.ABC):
 			raise ExpressionParsingError(f"Wrong type ({type(ret)} instead of {cls.__name__})")
 		return ret
 
-	def __eq__(self, other) -> "OperatorExpression":
-		return self.comparison(BuiltinOperator.EQ, other)
-
-	def __ne__(self, other) -> "OperatorExpression":
-		return self.comparison(BuiltinOperator.NE, other)
-
-	def __lt__(self, other) -> "OperatorExpression":
-		"""Create a filter comparing this attribute to a value."""
-		return self.comparison(BuiltinOperator.LT, other)
-
-	def __le__(self, other) -> "OperatorExpression":
-		"""Create a filter comparing this attribute to a value."""
-		return self.comparison(BuiltinOperator.LE, other)
-
-	def __ge__(self, other) -> "OperatorExpression":
-		"""Create a filter comparing this attribute to a value."""
-		return self.comparison(BuiltinOperator.GE, other)
-
-	def __gt__(self, other) -> "OperatorExpression":
-		"""Create a filter comparing this attribute to a value."""
-		return self.comparison(BuiltinOperator.GT, other)
-
-	def comparison(self, operator: "Operator", value) -> "OperatorExpression":
-		# TODO think about this...
-		if isinstance(value, Expression):
-			return OperatorExpression(operator, self, value)
-		return NotImplemented
-
 
 class LiteralExpression(Expression):
 	"""A simple literal."""
@@ -172,11 +146,11 @@ class LiteralExpression(Expression):
 		(re.compile(r"false"), lambda _: False),
 		# Null/None
 		(re.compile(r"null"), lambda _: None),
-		# Exponents are not metioned in the Icinga docs... # TODO test (or read source code), what does Icinga do?
+		# Icinga does not support exponents as far as I can see
 		# 	r"[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?" with exponents
-		(re.compile(r"[-+]?(\d+(\.\d*)?|\.\d+)"), float),
-		# Duration literals  # TODO test if exponents are allowed here
-		(re.compile(r"[-+]?((\d+(\.\d*)?|\.\d+)(ms|s|m|h|d)?)+"), parse_duration_literal),
+		(re.compile(r"[0-9]+(\.[0-9]+)?"), float),
+		# Duration literals (don't support exponents as well)
+		(re.compile(r"[0-9]+(\.[0-9]+)?(ms|s|m|h|d)?"), parse_duration_literal),
 		# String literals
 		(re.compile(r'".*"'), lambda string: string[1:-1]),
 		(re.compile(r"{{{.*}}}", re.DOTALL), lambda string: string[3:-3]),
@@ -202,10 +176,11 @@ class LiteralExpression(Expression):
 						raise ExpressionParsingError(f"Unable to parse simple literal: {string}")
 		raise ExpressionParsingError(f"Unable to parse as simple literal: {string}")
 
-	def comparison(self, operator: "Operator", value) -> Union[bool, "OperatorExpression"]:
-		if isinstance(value, self.__class__):
-			return operator.operate(self.value, value.value)
-		return super().comparison(operator, value)
+	def __eq__(self, other):
+		try:
+			return self.value == other.value
+		except AttributeError:
+			return NotImplemented
 
 
 class VariableExpression(Expression):
@@ -612,14 +587,20 @@ def _closing_brackets(predecessor, bracket: str, lst: Sequence) -> Sequence:
 
 	if len(lst) != 1 or not isinstance(lst[0], Expression):
 		# Finalise everything between commas
-		values = [(comma, list(values)) for comma, values in itertools.groupby(lst, lambda x: x == ",")]
-		values = [
-			_finalise_subexpression(sub)
-			for comma, sub
-			in values
-			# Ignore single commas
-			if not (comma and len(sub) == 1)
-		]
+		temp_values = [(comma, list(values)) for comma, values in itertools.groupby(lst, lambda x: x == ",")]
+		values = list()
+		for i, comma_sub in enumerate(temp_values):
+			comma, sub = comma_sub
+			if i % 2 == 1:
+				# One comma expected
+				if not comma:
+					raise ExpressionParsingError("Missing comma")
+				if len(sub) > 1:
+					raise ExpressionParsingError("Unexpected multiple commas")
+				continue
+			if comma:
+				raise ExpressionParsingError("Unexpected comma")
+			values.append(_finalise_subexpression(sub))
 	else:
 		values = lst
 

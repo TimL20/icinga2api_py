@@ -15,7 +15,6 @@ EMPTY_CONTEXT = FilterExecutionContext()
 LITERALS = (
 	('"a"', "a"),
 	("1", 1),
-	(".1", .1),
 	("3m", 180),
 	("2ms", 0.002),
 	("true", True),
@@ -48,16 +47,18 @@ def test_literal_expression(literal_expression):
 	'"a\nb"',
 	# Missing ""
 	"abc",
-	# Invalid float
+	# Invalid floats
 	"1.1.1",
+	# Icinga doesn't allow starting floats with a dot
+	".1",
 	# Invalid for obvious reasons
 	"f a l s e",
 	"1q",
 ))
-@pytest.mark.xfail(raises=ExpressionParsingError)
 def test_literal_expression_fails(string):
 	"""Test LiteralExpression parsing that should fail."""
-	LiteralExpression.from_string(string)
+	with pytest.raises(ExpressionParsingError):
+		LiteralExpression.from_string(string)
 
 
 def test_variable_expression():
@@ -73,10 +74,10 @@ def test_variable_expression():
 @pytest.mark.parametrize("string", (
 	"1", "true", "-f", "ü", "$a"
 ))
-@pytest.mark.xfail(raises=ExpressionParsingError)
 def test_variable_expression_fails(string):
 	"""Test invalid variable expressions."""
-	VariableExpression.from_string(string)
+	with pytest.raises(ExpressionParsingError):
+		VariableExpression.from_string(string)
 
 
 def test_function_expression():
@@ -191,6 +192,8 @@ def test_parsing_simple(string, cls):
 	# Missing brackets
 	"[, 1]", "[1", "1]", "a[]",
 	"(1 == 2", "1 == 2)",
+	# Missing comma
+	"[1, 2 3]", "fun(1 2, 3)"
 	# Missing operands
 	"1 ==", "== 1", "a and", "and b",
 	# More complex...
@@ -199,10 +202,10 @@ def test_parsing_simple(string, cls):
 	"fun(a.b==0), 1)",
 	"fun(a.b==0,, 1)",
 ))
-@pytest.mark.xfail(raises=ExpressionParsingError)
 def test_parsing_fails(string):
 	"""Test parsing invalid expressions."""
-	Expression.from_string(string)
+	with pytest.raises(ExpressionParsingError):
+		Expression.from_string(string)
 
 
 @pytest.mark.parametrize("string1, string2", (
