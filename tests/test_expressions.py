@@ -132,46 +132,25 @@ def test_operators_concrete(string, args, res):
 	assert Operator.get(string, False).operate(*args) == res
 
 
-def _operator_print_test_helper(operator, too_less, too_much):
+@pytest.mark.parametrize("operator, string, too_less, too_much", (
+		(Operator("$", Operator.Type.UNARY), "$0", 0, 2),
+		(Operator("$", Operator.Type.BINARY), "0$1", 1, 3),
+		(Operator("§$", Operator.Type.TERNARY), "0§1$2", 2, 4),
+), ids=[str(i) for i in range(3)])
+def test_operator_print(operator, string, too_less, too_much):
 	"""Test that operator raises TypeError with too less or too much operands."""
+	right = list(range(too_less + 1))
 	too_less = list(range(too_less))
-	too_much = list(range(too_much))
+	too_much = list(range(too_much)) if too_much > 0 else None
+
+	assert operator.print(*right).replace(" ", "") == string.replace(" ", "")
 
 	with pytest.raises(TypeError):
 		_ = operator.print(*too_less)
 
-	with pytest.raises(TypeError):
-		_ = operator.print(*too_much)
-
-
-def test_operator_print_unary():
-	"""Test Operator.print() for unary operator type."""
-	with pytest.raises(ValueError):
-		_ = Operator("a", Operator.Type.UNARY)  # Would be indistuingishable from the operand
-
-	op = Operator("+", Operator.Type.UNARY)
-	assert op.print(1) == "+1"
-
-	_operator_print_test_helper(op, 0, 2)
-
-
-def test_operator_print_binary():
-	"""Test Operator.print() for binary operator type."""
-	with pytest.raises(ValueError):
-		_ = Operator("a", Operator.Type.BINARY)  # Would be indistuingishable from the operand
-
-	op = Operator("+", Operator.Type.BINARY)
-	assert op.print(1, 2).replace(" ", "") == "1+2"
-
-	_operator_print_test_helper(op, 1, 3)
-
-
-def test_operator_print_ternary():
-	"""Test Operator.print() for ternary type."""
-	op = Operator("§$", Operator.Type.TERNARY)
-	assert op.print(1, 2, 3).replace(" ", "") == "1§2$3"
-
-	_operator_print_test_helper(op, 2, 4)
+	if too_much:
+		with pytest.raises(TypeError):
+			_ = operator.print(*too_much)
 
 
 @pytest.mark.parametrize("operator", (
@@ -224,6 +203,7 @@ def test_parsing_simple(string, cls):
 
 @pytest.mark.parametrize("string", (
 	"", "$", "1q", ",",
+	"1, 2, 3",
 	# Missing brackets
 	"[, 1]", "[1", "1]", "a[]",
 	"(1 == 2", "1 == 2)",
@@ -256,7 +236,7 @@ def test_parsing_fails(string):
 				"a.b==c.d ||(e.f.g(hi,j)&&kl(m.n,!o.p,q.r)&&s.t)||u.v<1||s==\"s\"",
 				"(a.b==c.d)||(e.f.g(hi,j)&&kl(m.n,!o.p,q.r)&&s.t)||(u.v<1)||(s==\"s\")"
 		),
-		("[5, 6, 7][1] == 6", "([5, 6, 7])[1] == 6")
+		("[5, 6, 7][1] == 6", "([5, 6, 7])[1] == 6"),
 ))
 def test_parsing_complex(string1, string2):
 	"""Test parsing and printing more complex expressions."""
@@ -268,18 +248,91 @@ def test_parsing_complex(string1, string2):
 
 # Maximum test expression for deep inspection
 MAXI_TEST_EXPRESSION = """
-0 != 1 && (a == "b" || c*2 < 3d && e["f"] == {{{g
+(
+	0 != 1 && (a == "b" || c*2 < 3d && e["f"] == {{{g
 h}}} && i > j || k.l["m"][ n/4+5 ].o["p"] == 6.7)
-&& [8, ][0] > [-9][0] 
-&& (true && !false)
-&& q(r) == s(t, u, v)
+)
+&& 
+(
+	(
+		[+8, ][0] > [-9][0] 
+		&& (true && !false)
+	)
+	&& q(r) == s(t, u, v)
+)
 """
 
 
 def test_parsing_maxi():
 	"""Test parsing the maximum string and inspect depply whether that worked."""
 	e = Expression.from_string(MAXI_TEST_EXPRESSION)
-	assert len(e.operands) == 5
+
+	def getter(*path):
+		"""Helper function to get a sepcific operand."""
+		temp = e
+		for element in path:
+			temp = temp.operands[element]
+		return temp
+
+	# Test structure of the expression ==============================
+	# 0 != 1 ........................................................
+	o = getter(0, 0)
+	assert o.operator == Operator.get("!=", False)
+	assert o.operands[0].evaluate(None) == 0
+	assert o.evaluate(None) is True
+	# a == "b" || c*2 < 3d ..........................................
+	o = getter(0, 1, 0)
+	assert o.operator == BuiltinOperator.OR
+	# c*2 < 3d ......................................................
+	o = getter(0, 1, 0, 1)
+	assert o.operate == BuiltinOperator.LT
+	assert o.operands[1].evaluate(None) == 3 * 24 * 60 * 60
+	# a == "b" || c*2 < 3d && e["f"] == {{{g\nh}}} ..................
+	o = getter(0, 1, 0)
+	assert o.operator == BuiltinOperator.AND  # OR bind tighter
+	assert o.operands[1][1].evaluate(None) == "g\nh"
+	# i > j || k.l["m"][ n/4+5 ].o["p"] == 6.7
+	o = getter(0, 1, 1)
+	assert o.operator == BuiltinOperator.OR
+	# k.l["m"][ n/4+5 ].o["p"]
+	o = getter(0, 1, 1, 1, 0)
+	assert o.operator == Indexer.SUBSCRIPT
+	assert o.operands[1] == "p"
+	# k.l["m"][ n/4+5 ].o
+	o = getter(0, 1, 1, 1, 0, 0)
+	assert o.operator == Indexer.INDEX
+	# k.l["m"][ n/4+5 ]
+	o = getter(0, 1, 1, 1, 0, 0, 0)
+	assert o.operator == Indexer.SUBSCRIPT
+	assert o.operands[1].evaluate({"n": 8}) == 7
+	context = {"k.l.m": [0, 1, 2, 3, 4, 5, 11]}
+	assert o.evaluate(context) == 1
+	# [+8, ][0]
+	o = getter(1, 0, 0, 0)
+	assert o.operator == Indexer.SUBSCRIPT
+	assert o.operands[0][0].operator == BuiltinOperator.PLUS
+	assert o.operands[0].evaluate(None) == [8]
+	# [-9][0]
+	o = getter(1, 0, 0, 1)
+	assert o.operator == Indexer.SUBSCRIPT
+	assert o.evaluate(None) == -9
+	# true && !false
+	o = getter(1, 0, 1)
+	assert o.evaluate(None) is True
+	assert o.operands[1].evaluate(None) is True
+	assert o.operands[1].operator == BuiltinOperator.NOT
+	# s(t, u, v)
+	o = getter(1, 1, 1)
+	assert isinstance(o, FunctionCallExpression)
+	flag = False
+
+	def fun(t, v, u):
+		nonlocal flag
+		flag = True
+		return t + v - u
+
+	assert o.evaluate({"s": fun, "t": 10, "v": 9, "u": 8}) == 11
+	assert flag
 
 
 @pytest.fixture(scope="function")
@@ -335,10 +388,12 @@ def test_context_with_secondary(context):
 		("a==1", {"a": "1"}, False),
 		('(a.b==1 && b.c=="2") || (c.d==3)', {"a.b": 1, "b.c": "2", "c.d": 0}, True),
 		('(a.b==1 && b.c=="2") || (c.d==3)', {"a.b": 0, "b.c": 0, "c.d": 3}, True),
+		('(a.b==1 && b.c=="2") || (c.d==3)', {"a.b": 0, "b.c": 0, "c.d": 0}, False),
 		('(a.b==1 && b.c=="2") || (c.d==3)', {"a.b": 1, "b.c": 2, "c.d": 0}, False),
 ))
 def test_string_execution(string, context, res):
 	"""Test filter string execution."""
 	context = FilterExecutionContext(context)
-	assert Expression.from_string(string).evaluate(context) == res
+	expression = Expression.from_string(string)
+	assert expression.evaluate(context) == res
 

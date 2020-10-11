@@ -184,14 +184,14 @@ class LiteralExpression(Expression):
 
 
 class ArrayExpression(Expression):
-	"""Array expression (ordered list of values, comma-separated)."""
+	"""Array expression (ordered list of expressions, comma-separated in string representation)."""
 
 	def __init__(self, *values):
 		super().__init__("")
 		self.values = values
 
 	def __str__(self):
-		return f"[{', '.join(self.values)}]"
+		return f"[{', '.join(str(value) for value in self.values)}]"
 
 	def evaluate(self, context: Mapping):
 		ret = list()
@@ -222,20 +222,13 @@ class VariableExpression(Expression, _VariableExpressionMixin):
 	"""A variable in an expression."""
 
 	#: What is valid as a variable here:
-	#: Regular variable name with attribute indices and array subscripts
-	VALIDATION_PATTERN = re.compile(r"^[a-zA-Z_](\.?[a-zA-Z0-9_]+)*$")
-
-	def __init__(self, symbol):
-		super().__init__(symbol)
-		self.parts = symbol.split(".")
+	#: Starting with a letter, then alphanumeric characters including unerscore
+	VALIDATION_PATTERN = re.compile(r"^[a-zA-Z_]([a-zA-Z0-9_]+)*$")
 
 	def evaluate(self, context: Mapping):
 		try:
-			temp = context
-			for part in self.parts:
-				temp = temp[part]
-			return temp
-		except (KeyError, TypeError):
+			return context[self.symbol]
+		except KeyError:
 			raise ExpressionEvaluationError(f"No such symbol in context: {self.symbol}")
 
 	@classmethod
@@ -252,7 +245,7 @@ class VariableExpression(Expression, _VariableExpressionMixin):
 			raise ExpressionParsingError(f"Invalid variable expression: {string}")
 
 
-class FunctionCallExpression(VariableExpression, _VariableExpressionMixin):
+class FunctionCallExpression(VariableExpression):
 	"""Function or method call."""
 
 	def __init__(self, symbol, *args):
@@ -280,25 +273,17 @@ class OperatorExpression(Expression, _VariableExpressionMixin):
 	def __init__(self, operator: "Operator", *operands):
 		super().__init__("")
 		self.operator = operator
+		# Check number of operands
+		if operator.type.check_operands_number(len(operands)) != 0:
+			raise TypeError(f"{operator.type.name.title()} operator doesn't allow {len(operands)} operand(s)")
 		self.operands = operands
 
 	def __str__(self):
 		return self.operator.print(*self.operands)
 
 	def evaluate(self, context: Mapping):
-		operands = list()
-		for operand in self.operands:
-			try:
-				operands.append(operand.evaluate(context))
-			except ExpressionParsingError:
-				raise
-			except AttributeError:
-				# Pass operand as raw value
-				operands.append(operand)
-		try:
-			return self.operator.operate(*operands)
-		except TypeError:
-			raise ExpressionEvaluationError("Operator not executable")
+		# This is done in the Operator class, because evaluation of operands can depend on the operator itself
+		return self.operator.evaluate(context, *self.operands)
 
 
 class Operator:
@@ -385,6 +370,27 @@ class Operator:
 		"""Return all operators, sorted by precedence."""
 		return sorted((operator for operator in cls._OPERATOR_TRANSLATION.values()), key=op.attrgetter("precedence"))
 
+	def evaluate(self, context: Mapping, *operands):
+		"""Evaluate an OperatorExpression.
+
+		The reason why this is not done in the OperatorExpression class, that evaluation of operands can depend on the
+		operator.
+		"""
+		values = list()
+		for operand in operands:
+			try:
+				value = operand.evaluate(context)
+				values.append(value)
+			except ExpressionParsingError:
+				raise
+			except AttributeError:
+				# Pass operand as raw value
+				values.append(operand)
+		try:
+			return self.operate(*values)
+		except TypeError:
+			raise ExpressionEvaluationError("Operator not executable, or it does not accept this number of operands")
+
 	@property
 	def is_executable(self) -> bool:
 		"""Whether this operator is executable (locally)."""
@@ -434,8 +440,6 @@ class Operator:
 				return f"{self.symbol}".join(self.operand_strings(operands))
 		else:  # pos
 			# Unary operator: <operator><attribute>
-			if len(operands) > 1:
-				raise TypeError(f"Unary operator needs exactly one operand")
 			return f"{self.symbol}{list(self.operand_strings(operands))[0]}"
 
 
@@ -451,6 +455,8 @@ class BuiltinOperator(Operator, enum.Enum):
 
 	# Simple unary operators
 	NOT = ("!", Operator.Type.UNARY, 2, (lambda x: not x))
+	MINUS = ("-", Operator.Type.UNARY, 2, (lambda x: -x))
+	PLUS = ("+", Operator.Type.UNARY, 2, (lambda x: +x))
 	# Simple calculations
 	ADD = ("+", Operator.Type.BINARY, 4, op.add)
 	SUBTRACT = ("-", Operator.Type.BINARY, 4, op.sub)
@@ -484,11 +490,20 @@ class Indexer(Operator, enum.Enum):
 	INDEX = "{}.{}"
 
 	@staticmethod
-	def _operate(array, index):
+	def _operate(subscriptable, item):
 		try:
-			return array[index]
+			return subscriptable[item]
 		except (IndexError, KeyError, TypeError):
-			raise ExpressionEvaluationError("Array subscript failed")
+			raise ExpressionEvaluationError("Subscript or attribute access failed")
+
+	def evaluate(self, context: Mapping, expression: Expression, item):
+		"""Evaluate an indexing operation - this is different from other evaluations."""
+		if hasattr(item, "value"):  # LiteralExpresion or similar
+			item = item.value
+		if not isinstance(item, int):  # Make sure item is either int or str
+			item = str(item)
+
+		return self._operate(expression.evaluate(context), item)
 
 	def print(self, *operands):
 		if len(operands) != 2:
@@ -510,17 +525,13 @@ def expression_from_string(string: str) -> Expression:
 #: 1. Single closing brackets: ")", "]"
 #: 2. A ,
 #: 3. A string, starting and ending with " or {{{ resp. }}}
-#: 4. Any alphanumeric characters or .
+#: 4. Any alphanumeric characters
 #: 5. Everything else that is not space (multiple chars)
 _CHAR_GROUPING = re.compile(
-	r"([(\[])|([)\]])|(,)|(\".*?\"|{{{.*?}}})|([\w.]+)|([^()\[\]\"\w.\s]+)",
+	r"([(\[])|([)\]])|(,)|(\".*?\"|{{{.*?}}})|([\w]+)|([^()\[\]\"\w\s]+)",
 	# Match line breaks with dots (for multiline strings)
 	re.DOTALL
 )
-
-#: The intermediate structure produced by _string_to_expression
-#: It's a tree-like structure and as such a sequence of the same types and strings as leaves
-_STRUCTURE_TYPE = List[Union["_STRUCTURE_TYPE", str]]
 
 
 def _string_to_expression(string: str) -> Expression:
@@ -648,7 +659,7 @@ def _closing_brackets(predecessor, bracket: str, lst: Sequence) -> Sequence:
 			elif len(values) > 1:
 				raise ExpressionParsingError("Invalid array or dictionary subscript")
 			# Array subscript
-			return predecessor[values[0]]
+			return predecessor[values[0]],
 		except TypeError:
 			# Array subscript / function call failed
 			raise ExpressionParsingError("Invalid array subscript or function call")
@@ -663,7 +674,7 @@ def _closing_brackets(predecessor, bracket: str, lst: Sequence) -> Sequence:
 		return predecessor, ArrayExpression(*values)
 
 
-def _finalise_subexpression(lst: _STRUCTURE_TYPE) -> Expression:
+def _finalise_subexpression(lst: List[Union[Expression, Operator]]) -> Expression:
 	"""Helper function: finalise a (sub-)expression -
 	this is called with stuff inside closing parenthesis and between commas in an array."""
 
