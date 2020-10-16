@@ -225,18 +225,21 @@ def test_parsing_fails(string):
 
 @pytest.mark.parametrize("string1, string2", (
 		('a.b=="a.b"', 'a.b=="a.b"'),
+		("a.b.c==1", "(a.b).c==1"),
 		("a.b==1", "(a.b)==(1)"),
 		("a.b(1)", "(a.b(1))"),
 		("fun(a.b==0, 1)", "fun((a.b==0), 1)"),
 		("!a.b && c.d", "(!(a.b))&&(c.d)"),
 		("fun1(1, fun2(2, 3))", "(fun1(1, (fun2(2, 3))))"),
 		("a.b(1, 2, fun(c, 3))==4", "(a.b(1, 2, (fun(c, 3))))==4"),
+		("a.b.c(0)", "(a.b.c)(0)"),
 		("a==0 && b==1 && c==2", "((a==0)&&(b==1))&&(c==2)"),
 		(
 				"a.b==c.d ||(e.f.g(hi,j)&&kl(m.n,!o.p,q.r)&&s.t)||u.v<1||s==\"s\"",
 				"(a.b==c.d)||(e.f.g(hi,j)&&kl(m.n,!o.p,q.r)&&s.t)||(u.v<1)||(s==\"s\")"
 		),
 		("[5, 6, 7][1] == 6", "([5, 6, 7])[1] == 6"),
+		("a.b[0]==0", "(a.b)[0]==0"),
 ))
 def test_parsing_complex(string1, string2):
 	"""Test parsing and printing more complex expressions."""
@@ -280,22 +283,26 @@ def test_parsing_maxi():
 	assert o.operator == Operator.get("!=", False)
 	assert o.operands[0].evaluate(None) == 0
 	assert o.evaluate(None) is True
-	# a == "b" || c*2 < 3d ..........................................
-	o = getter(0, 1, 0)
-	assert o.operator == BuiltinOperator.OR
-	# c*2 < 3d ......................................................
-	o = getter(0, 1, 0, 1)
-	assert o.operate == BuiltinOperator.LT
-	assert o.operands[1].evaluate(None) == 3 * 24 * 60 * 60
-	# a == "b" || c*2 < 3d && e["f"] == {{{g\nh}}} ..................
+	# a == "b" || c*2 < 3d && e["f"] == {{{g\nh}}}
 	o = getter(0, 1, 0)
 	assert o.operator == BuiltinOperator.AND  # OR bind tighter
-	assert o.operands[1][1].evaluate(None) == "g\nh"
+	# {{{g\nh}}}
+	o = getter(0, 1, 0, 1, 1)
+	assert o.evaluate(None) == "g\nh"
+	# a == "b" || c*2 < 3d ..........................................
+	o = getter(0, 1, 0, 0)
+	assert o.operator == BuiltinOperator.OR
+	# c*2 < 3d ......................................................
+	o = getter(0, 1, 0, 0, 1)
+	assert o.operator == BuiltinOperator.LT
+	assert o.operands[1].evaluate(None) == 3 * 24 * 60 * 60
 	# i > j || k.l["m"][ n/4+5 ].o["p"] == 6.7
 	o = getter(0, 1, 1)
 	assert o.operator == BuiltinOperator.OR
 	# k.l["m"][ n/4+5 ].o["p"]
 	o = getter(0, 1, 1, 1, 0)
+	# TODO this fails because of different precedence of the indexers...
+	# 	Problem is, that array/dict subscripts are resolved earlier in parsing than dot-indexer
 	assert o.operator == Indexer.SUBSCRIPT
 	assert o.operands[1] == "p"
 	# k.l["m"][ n/4+5 ].o

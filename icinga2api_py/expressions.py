@@ -211,7 +211,7 @@ class _VariableExpressionMixin:
 
 	def __call__(self: Expression, *args) -> "FunctionCallExpression":
 		"""Like in Python: Functions behave the same as callable variables."""
-		return FunctionCallExpression(self.symbol, *args)
+		return OperatorExpression(FUNCTION_CALL_OPERATOR, [self, *args])
 
 	def __getitem__(self: Expression, item):
 		"""Array subscript or dictionary indexing."""
@@ -243,24 +243,6 @@ class VariableExpression(Expression, _VariableExpressionMixin):
 			return cls(string)
 		else:
 			raise ExpressionParsingError(f"Invalid variable expression: {string}")
-
-
-class FunctionCallExpression(VariableExpression):
-	"""Function or method call."""
-
-	def __init__(self, symbol, *args):
-		super().__init__(symbol)
-		self.args = args
-
-	def __str__(self):
-		args = (str(arg) for arg in self.args)
-		return f"{self.symbol}({', '.join(args)})"
-
-	def evaluate(self, context: Mapping):
-		try:
-			super().evaluate(context)(*self.args)
-		except TypeError:
-			raise ExpressionEvaluationError(f"Symbol {self.symbol} is not callable with {len(self.args)} arguments")
 
 
 class OperatorExpression(Expression, _VariableExpressionMixin):
@@ -351,6 +333,10 @@ class Operator:
 		:param force: True to overwrite previous registrations
 		:returns True on success, False otherwise
 		"""
+		# TODO is should be possible to register an operator like e.g. the function call operator
+		# 	(or the ternary operator, in general: an operator with its symbols not together)
+		# 	in a way that it can be found later by the parsing finalise function.
+		# 	Just taking the first symbol would break operators like <=, so a better solution is needed
 		key = (self.symbol, self.type is Operator.Type.UNARY)
 		if force:
 			self._OPERATOR_TRANSLATION[key] = self
@@ -511,6 +497,28 @@ class Indexer(Operator, enum.Enum):
 		return self.value.format(*self.operand_strings(operands))
 
 
+class FunctionCall(Operator):
+	"""Function call operator."""
+
+	def __init__(self):
+		# TODO check precedence value in Icinga language reference
+		super().__init__("()", Operator.Type.MISCELLANEOUS, 1, self._operate)
+
+	@staticmethod
+	def _operate(func, *args):
+		try:
+			return func(*args)
+		except TypeError:
+			raise ExpressionEvaluationError(f"Function {func} is not callable with {len(args)} arguments")
+
+	def print(self, *operands):
+		return f"{operands[0]}({', '.join(operands[1:])})"
+
+
+FUNCTION_CALL_OPERATOR = FunctionCall()
+FUNCTION_CALL_OPERATOR.register(True)
+
+
 def expression_from_string(string: str) -> Expression:
 	"""Parse an expression of unknown type from a string."""
 	try:
@@ -573,13 +581,8 @@ def _string_to_expression(string: str) -> Expression:
 				else None
 			)
 			elements = _closing_brackets(predecessor, chars[1], temp)
-			# Substitute in cur but not the first element if it's None
-			elements = elements[(elements[0] is None):]
-			if predecessor is None:
-				cur[-1:] = elements
-			else:
-				cur[-2:] = elements
-			pass
+			# Substitute in cur
+			cur[-1:] = elements
 		elif chars[2]:  # A comma .....................................................................................
 			cur.append(",")
 		else:
@@ -652,26 +655,26 @@ def _closing_brackets(predecessor, bracket: str, lst: Sequence) -> Sequence:
 			# Has to be an array subscript or function call
 			if parens:
 				# Function call
-				return predecessor(*values),
+				return FUNCTION_CALL_OPERATOR, values
 			elif not values:
 				# Empty array subscript
 				raise ExpressionParsingError("Empty array subscription")
 			elif len(values) > 1:
 				raise ExpressionParsingError("Invalid array or dictionary subscript")
 			# Array subscript
-			return predecessor[values[0]],
+			return Indexer.SUBSCRIPT, values[0]
 		except TypeError:
 			# Array subscript / function call failed
 			raise ExpressionParsingError("Invalid array subscript or function call")
 	if parens:
 		if values:
 			# Return the finalised sub-expression
-			return predecessor, values[0]
+			return values[0],
 		else:
 			raise ExpressionParsingError("Empty sub-expression")
 	else:
 		# Array
-		return predecessor, ArrayExpression(*values)
+		return ArrayExpression(*values),
 
 
 def _finalise_subexpression(lst: List[Union[Expression, Operator]]) -> Expression:
