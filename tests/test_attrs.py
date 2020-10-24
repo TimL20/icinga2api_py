@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Test for the attrs module.
+Tests for the attrs module.
 """
 
 import pytest
 
-from icinga2api_py.attrs import Attribute, AttributeSet, Operator, Filter
+from icinga2api_py.attrs import Attribute, AttributeSet
 
 
 # Test data with the following key-value pairs (except the init_args they are all only checked properties):
@@ -35,7 +35,7 @@ TEST_DATA = (
 		"joined": "joins.jointype.x",
 	},
 	{  # 2
-		"init_args": ("attrs.x", False, "otype"),
+		"init_args": ("attrs.x", "otype"),
 		"awareness": True,
 		"string": "attrs.x",
 		"icinga": "otype.x",
@@ -59,7 +59,7 @@ TEST_DATA = (
 		"object_joined": "joins.otype.x",
 	},
 	{  # 5
-		"init_args": ("otype.x", False, "otype"),
+		"init_args": ("otype.x", "otype"),
 		"awareness": True,
 		"string": "attrs.x",
 		"icinga": "otype.x",
@@ -81,7 +81,7 @@ TEST_DATA = (
 		"joined": "joins.jointype.x",
 	},
 	{  # 8
-		"init_args": ("joins.jtype.x", False, "otype"),
+		"init_args": ("joins.jtype.x", "otype"),
 		"awareness": True,
 		"string": "joins.jtype.x",
 		"icinga": "jtype.x",
@@ -105,15 +105,13 @@ TEST_DATA = (
 		"object_joined": "joins.otype",
 	},
 	{  # 11
-		"init_args": ("otype", False, "otype"),
+		"init_args": ("otype", "otype"),
 		"awareness": True,
 		"string": "attrs",
 		"icinga": "otype",
 		"joined": "joins.jointype",
 		"object_joined": "joins.otype",
 	},
-	# Unusual testdata (inputs not as expected), to test how the functionality deals with it...
-	# TODO add Edge case: both aware and object_type are set; one must have precedence
 )
 IDS = [f"{i}:{d['string']}" for i, d in enumerate(TEST_DATA)]
 
@@ -227,127 +225,3 @@ def test_attributeset_contain(tdata_set):
 
 	for attr in tdata_set["contains"]:
 		assert attr in obj
-
-
-def test_operator_basics():
-	"""Test Operator basics."""
-	def func(*args):
-		return args
-
-	o = Operator("##", Operator.Type.COMPARISON, 1, func)
-	assert o.symbol == "##"
-	assert str(o) == "##"
-	assert o.operate is func
-
-	# Registration
-	assert o.register() is True
-	assert Operator.from_string("##") is o
-	assert o.register() is True
-	# Register returns False if not registered...
-	assert Operator("##", Operator.Type.COMPARISON, None).register() is False
-	assert o.register(True)
-
-	assert o.operate(0, 1, 2) == (0, 1, 2)
-
-	assert o == Operator("##", Operator.Type.COMPARISON, 1, func)
-	assert o != 1
-
-
-@pytest.mark.parametrize("string, args, res", (
-		("<", (0, 1), True), ("<", (1, 0), False),
-		("<=", (0, 1), True), ("<=", (1, 0), False),
-		("==", (0, 0), True), ("==", (1, 0), False),
-		("!=", (0, 1), True), ("!=", (1, 1), False),
-		(">=", (1, 0), True), (">=", (0, 1), False),
-		(">", (1, 0), True), (">", (0, 1), False),
-		("&&", (1, 1, 1), True), ("&&", (1, 0, 1), False),
-		("||", (1, 0, 0), True), ("||", (0, 0, 0), False),
-))
-def test_operators_concrete(string, args, res):
-	"""Test concrete operators."""
-	assert Operator.from_string(string).operate(*args) == res
-
-
-def test_operator_print_unary():
-	"""Test Operator.print() for unary operator type."""
-	with pytest.raises(ValueError):
-		_ = Operator("a", Operator.Type.UNARY)  # Would be indistuingishable from the operand
-
-	op = Operator("+", Operator.Type.UNARY)
-	assert op.print(1) == "+1"
-
-	with pytest.raises(TypeError):
-		_ = op.print(1, 2)  # Too many operands
-
-
-def test_operator_print_comparison():
-	"""Test Operator.print() for comparison operator type."""
-	with pytest.raises(ValueError):
-		_ = Operator("a", Operator.Type.UNARY)  # Would be indistuingishable from the operand
-
-	op = Operator("+", Operator.Type.COMPARISON)
-	assert op.print(1, 2).replace(" ", "") == "1+2"
-
-	with pytest.raises(TypeError):
-		_ = op.print(1)  # Too less operands
-
-
-def test_operator_print_logical():
-	"""Test Operator.print() for logical operator type."""
-	with pytest.raises(ValueError):
-		_ = Operator("a", Operator.Type.LOGICAL)  # Would be indistuingishable from the operand
-
-	op = Operator("+", Operator.Type.LOGICAL)
-	assert op.print(1, 2).replace(" ", "") == "1+2"
-
-	with pytest.raises(TypeError):
-		_ = op.print(1)  # Too less operands
-
-
-def test_operator_print_function():
-	"""Test Operator.print() for function operator type."""
-	with pytest.raises(ValueError):
-		_ = Operator("+", Operator.Type.FUNCTION)  # Function name needs to consist of alphanumerical characters
-
-	op = Operator("a", Operator.Type.FUNCTION)
-	assert op.print("b") == "a(b)"
-
-
-def test_operator_print_method():
-	"""Test Operator.print() for method operator type."""
-	with pytest.raises(ValueError):
-		_ = Operator("+", Operator.Type.METHOD)  # Function name needs to consist of alphanumerical characters
-
-	op = Operator("a", Operator.Type.METHOD)
-	assert op.print("b") == "b.a()"
-
-
-# TODO add filter basics test
-
-# TODO add filter to str test
-
-@pytest.mark.parametrize("string, string2", (
-		("a.b==1", "(a.b)==(1)"),
-		("a.b(1)", "(a.b(1))"),
-		("fun(a.b==0, 1)", "fun((a.b==0), 1)"),
-		("!a.b && c.d", "(!(a.b))&&(c.d)"),
-		("fun1(1, fun2(2, 3))", "(fun1(1, (fun2(2, 3))))"),
-		("a.b(1, 2, fun(c, 3))==4", "(a.b(1, 2, (fun(c, 3))))==4"),
-		("a==0 && b==1 && c==2", "((a==0)&&(b==1))&&(c==2)"),
-		# Maxi test string...
-		(
-				"a.b==c.d ||(e.f.g(hi,j)&&kl(m.n,!o.p,q.r)&&s.t)||u.v<1",
-				"(a.b==c.d)||(e.f.g(hi,j)&&kl(m.n,!o.p,q.r)&&s.t)||(u.v<1)"
-		)
-))
-def test_filter_fromstring(string, string2):
-	"""Test Filter.form_string()."""
-	obj = Filter.from_string(string)
-	obj2 = Filter.from_string(string2)
-	fstring = str(obj).replace(" ", "")
-	# Spacing is allowed to be different
-	assert fstring == string.replace(" ", "")
-	assert str(obj2).replace(" ", "") == fstring
-
-
-# TODO add filter execution test

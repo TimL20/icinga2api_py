@@ -18,5 +18,10 @@ class AttributeParsingError(ParsingError):
 	"""Error when parsing an attribute description."""
 
 
-class FilterParsingError(ParsingError):
+class ExpressionParsingError(ParsingError):
 	"""Error on parsing a filter string."""
+
+
+class ExpressionEvaluationError(RuntimeError):
+	"""Error when executing an Icinga expression locally, in which case it's propably not possible to execute the
+	expression locally."""

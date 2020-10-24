@@ -17,17 +17,12 @@ icinga2api\_py.attrs module
 ---------------------------
 
 .. automodule:: icinga2api_py.attrs
-   :exclude-members: ComparisonOperator
+   :exclude-members: BuiltinOperator
    :members:
    :undoc-members:
    :show-inheritance:
    
-   .. autoclass:: ComparisonOperator
-      :members:
-      :show-inheritance:
-      :undoc-members:
-   
-   .. autoclass:: LogicalOperator
+   .. autoclass:: BuiltinOperator
       :members:
       :show-inheritance:
       :undoc-members:
