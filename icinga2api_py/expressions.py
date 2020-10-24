@@ -63,6 +63,7 @@ The following things are **not** implemented by this module:
 
 import abc
 import collections.abc
+import decimal
 import enum
 import itertools
 from typing import Union, Optional, Sequence, Iterable, Generator, Callable, Mapping, MutableMapping, List, Tuple
@@ -165,6 +166,26 @@ class Expression(abc.ABC):
 		if not isinstance(ret, cls):
 			raise ExpressionParsingError(f"Wrong type ({type(ret)} instead of {cls.__name__})")
 		return ret
+
+	def join(self, operator: Union[str, "Operator"], operand=None) -> "OperatorExpression":
+		"""Join this Expression object with another expression using an operator.
+
+		:param operator: Operator as an :class:`Operator` object, or in its sting representation
+		:param operand: Operand, or None for unary operators
+		:return: A suitable :class:`OperatorExpression`
+		:raise ValueError: In case of an invalid operator casting the operand to an Expression object failed
+		"""
+		if not hasattr(operator, "operate"):
+			oin = operand is None
+			operator = Operator.get(operator, operand is None, None)
+		if operator is None:
+			raise ValueError("Invalid operator")
+
+		if operand is None:
+			return OperatorExpression(operator, self)
+		if not isinstance(operand, Expression):
+			operand = expression_from_object(operand)
+		return OperatorExpression(operator, self, operand)
 
 
 class LiteralExpression(Expression):
@@ -587,6 +608,48 @@ class FunctionCall(Operator):
 #: Function call operator object
 FUNCTION_CALL_OPERATOR = FunctionCall()
 FUNCTION_CALL_OPERATOR.register(True)
+
+
+#: Static literal conversions
+#: These objects are checked by identity and statically converted to LiteralExpression objects
+_STATIC_LITERAL_CONVERSIONS = {
+	True: "true",
+	False: "false",
+	None: "null",
+}
+
+
+def expression_from_object(obj) -> Expression:
+	"""Creates an Expression object out of any Python object."""
+	if isinstance(obj, Expression):
+		return obj
+
+	# First try static conversion
+	try:
+		return LiteralExpression(_STATIC_LITERAL_CONVERSIONS[obj], obj)
+	except (TypeError, KeyError):
+		pass
+
+	if isinstance(obj, Sequence) and not isinstance(obj, str):
+		# Sequence -> Array expression
+		# This has to come before decimal conversion, because that accepts tuples
+		return ArrayExpression(*obj)
+
+	# Try to convert to Decimal
+	# Decimal because Icinga doesn't accept exponents
+	try:
+		obj = decimal.Decimal(obj)
+	except (TypeError, ValueError):
+		pass
+	else:
+		return LiteralExpression(format(obj, "f"), obj)
+
+	if isinstance(obj, str):
+		if "\n" in obj:
+			return LiteralExpression(f"{{{{{{{obj}}}}}}}", obj)
+		return LiteralExpression(f"\"{obj}\"", obj)
+
+	raise ValueError(f"Unable to handle object of type {type(obj)}")
 
 
 def expression_from_string(string: str) -> Expression:

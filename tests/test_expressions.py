@@ -8,6 +8,51 @@ import pytest
 from icinga2api_py.expressions import *
 
 
+@pytest.fixture(scope="session")
+def expression_class():
+	class _Exp(Expression):
+		def evaluate(self, context: Mapping):
+			return context[0]
+
+	return _Exp
+
+
+def test_expression_basics(expression_class):
+	"""Basic expression tests."""
+	s = "s"
+	o = expression_class(s)
+	assert o.symbol is s
+	assert o.evaluate([1]) == 1
+
+	evaluate_many = o.evaluate_many(None)
+	assert callable(evaluate_many)
+	# Tests use of secondary context
+	assert evaluate_many({"0": 2}) == 2
+
+
+@pytest.mark.parametrize("sym, unary, xfail", (
+		("==", False, False),
+		("!", True, False),
+		("§$%", False, True),
+))
+def test_expression_join(expression_class, sym, unary, xfail):
+	"""Test Expression.join()"""
+	o = expression_class("")
+
+	if xfail:
+		with pytest.raises(ValueError):
+			o.join(sym)  # Has to fail because of weird operator
+		return
+
+	oe = o.join(sym, None if unary else 2)
+	assert isinstance(oe, OperatorExpression)
+	assert oe.operator == Operator.get(sym, unary)
+	assert oe.operands[0] is o
+	if not unary:
+		# The operand should be converted to a LiterExpression object
+		assert oe.operands[1] == LiteralExpression("2", 2)
+
+
 #: Literals as string and value tuples
 LITERALS = (
 	('"a"', "a"),
@@ -195,9 +240,6 @@ def test_operator_indexer(operator):
 
 	with pytest.raises(TypeError):
 		_ = operator.print(1, 2, 3)
-
-
-# TODO add Expression basics test
 
 
 @pytest.mark.parametrize("string, cls", (
