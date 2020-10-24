@@ -183,7 +183,7 @@ class LiteralExpression(Expression):
 			return NotImplemented
 
 
-class ArrayExpression(Expression):
+class ArrayExpression(Expression, collections.abc.Sequence):
 	"""Array expression (ordered list of expressions, comma-separated in string representation)."""
 
 	def __init__(self, *values):
@@ -203,7 +203,10 @@ class ArrayExpression(Expression):
 		return ret
 
 	def __getitem__(self, item):
-		return OperatorExpression(Indexer.SUBSCRIPT, self, item)
+		return self.values[item]
+
+	def __len__(self):
+		return len(self.values)
 
 
 class _VariableExpressionMixin:
@@ -211,7 +214,7 @@ class _VariableExpressionMixin:
 
 	def __call__(self: Expression, *args) -> "FunctionCallExpression":
 		"""Like in Python: Functions behave the same as callable variables."""
-		return OperatorExpression(FUNCTION_CALL_OPERATOR, [self, *args])
+		return OperatorExpression(FUNCTION_CALL_OPERATOR, *(self, *args))
 
 	def __getitem__(self: Expression, item):
 		"""Array subscript or dictionary indexing."""
@@ -306,7 +309,7 @@ class Operator:
 		def pattern(self):
 			"""Return pattern this operator type is required to match."""
 			# Usual operator: no alphanumeric character, no space, no brackets, no dot, no comma
-			return re.compile(r"[^\w\s(),]+")
+			return re.compile(r"[^\w\s,]+")
 
 	#: Get an Operator object by a tuple of two things:
 	#: 1. Its string representation
@@ -333,11 +336,11 @@ class Operator:
 		:param force: True to overwrite previous registrations
 		:returns True on success, False otherwise
 		"""
-		# TODO is should be possible to register an operator like e.g. the function call operator
-		# 	(or the ternary operator, in general: an operator with its symbols not together)
-		# 	in a way that it can be found later by the parsing finalise function.
-		# 	Just taking the first symbol would break operators like <=, so a better solution is needed
-		key = (self.symbol, self.type is Operator.Type.UNARY)
+		if self.type is Operator.Type.TERNARY or self.type is Operator.Type.MISCELLANEOUS:
+			key = self.symbol[0]
+		else:
+			key = self.symbol
+		key = (key, self.type is Operator.Type.UNARY)
 		if force:
 			self._OPERATOR_TRANSLATION[key] = self
 			return True
@@ -440,14 +443,14 @@ class BuiltinOperator(Operator, enum.Enum):
 		self.register(True)
 
 	# Simple unary operators
-	NOT = ("!", Operator.Type.UNARY, 2, (lambda x: not x))
-	MINUS = ("-", Operator.Type.UNARY, 2, (lambda x: -x))
-	PLUS = ("+", Operator.Type.UNARY, 2, (lambda x: +x))
-	# Simple calculations
+	NOT = ("!", Operator.Type.UNARY, 2, op.not_)
+	MINUS = ("-", Operator.Type.UNARY, 2, op.neg)
+	PLUS = ("+", Operator.Type.UNARY, 2, op.pos)
+	# Simple arithmetic operations
 	ADD = ("+", Operator.Type.BINARY, 4, op.add)
 	SUBTRACT = ("-", Operator.Type.BINARY, 4, op.sub)
-	MULIPLY = ("*", Operator.Type.BINARY, 5, op.mul)
-	DIVIDE = ("/", Operator.Type.BINARY, 5, op.truediv)
+	MULIPLY = ("*", Operator.Type.BINARY, 3, op.mul)
+	DIVIDE = ("/", Operator.Type.BINARY, 3, op.truediv)
 	# Simple comparison
 	LT = ("<", Operator.Type.BINARY, 6, op.lt)
 	LE = ("<=", Operator.Type.BINARY, 6, op.le)
@@ -459,7 +462,7 @@ class BuiltinOperator(Operator, enum.Enum):
 	OR = ("||", Operator.Type.BINARY, 12, (lambda *args: any(args)))
 	AND = ("&&", Operator.Type.BINARY, 13, (lambda *args: all(args)))
 	# Ternary operator
-	TERNARY = ("?:", Operator.Type.TERNARY, 16)
+	TERNARY = ("?:", Operator.Type.TERNARY, 16, lambda cond, a, b: (a if cond else b))
 
 
 class Indexer(Operator, enum.Enum):
@@ -476,20 +479,35 @@ class Indexer(Operator, enum.Enum):
 	INDEX = "{}.{}"
 
 	@staticmethod
-	def _operate(subscriptable, item):
+	def _operate(obj, item, attribute=False):
+		"""Index operation with prepared item."""
 		try:
-			return subscriptable[item]
-		except (IndexError, KeyError, TypeError):
-			raise ExpressionEvaluationError("Subscript or attribute access failed")
+			return obj[item]
+		except(IndexError, KeyError, TypeError):
+			if not attribute:
+				raise ExpressionEvaluationError("Subscript operation failed")
+			try:
+				return getattr(obj, item)
+			except AttributeError:
+				raise ExpressionEvaluationError("Object has no such attribute")
 
 	def evaluate(self, context: Mapping, expression: Expression, item):
 		"""Evaluate an indexing operation - this is different from other evaluations."""
+		attribute = False
+		if self is self.SUBSCRIPT:
+			item = item.evaluate(context)
+		elif self is self.INDEX:
+			attribute = False
+
+		# Now make sure the item is either string or int
 		if hasattr(item, "value"):  # LiteralExpresion or similar
 			item = item.value
-		if not isinstance(item, int):  # Make sure item is either int or str
+		try:
+			item = int(item)
+		except (ValueError, TypeError):
 			item = str(item)
 
-		return self._operate(expression.evaluate(context), item)
+		return self._operate(expression.evaluate(context), item, attribute)
 
 	def print(self, *operands):
 		if len(operands) != 2:
@@ -512,7 +530,7 @@ class FunctionCall(Operator):
 			raise ExpressionEvaluationError(f"Function {func} is not callable with {len(args)} arguments")
 
 	def print(self, *operands):
-		return f"{operands[0]}({', '.join(operands[1:])})"
+		return f"{operands[0]}({', '.join(str(operand) for operand in operands[1:])})"
 
 
 FUNCTION_CALL_OPERATOR = FunctionCall()
@@ -597,7 +615,11 @@ def _string_to_expression(string: str) -> Expression:
 			except ExpressionParsingError:
 				# Not a literal -> try as an Operator...
 				# It's unary if it's not preceeed by an expression
-				unary = not (len(cur) and isinstance(cur[-1], Expression))
+				# Although that expression could be a sequence right now (e.g. function call parameters)
+				unary = not (
+						len(cur) and
+						(isinstance(cur[-1], Expression) or isinstance(cur[-1], list))
+				)
 				operator = Operator.get(s, unary)
 				if operator is not None:
 					cur.append(operator)
@@ -692,7 +714,6 @@ def _finalise_subexpression(lst: List[Union[Expression, Operator]]) -> Expressio
 				pass
 		return m_index
 
-	pass
 	while True:
 		i = min_operator()
 		if i < 0:
@@ -710,8 +731,12 @@ def _finalise_subexpression(lst: List[Union[Expression, Operator]]) -> Expressio
 			# <operand1><operator><operand2>
 			operand2 = lst.pop(i + 1)
 			operand1 = lst.pop(i - 1)
-			# Join OperatorExpression objects if the operator is the same and accepts more than two operands
-			lst[i - 1] = OperatorExpression(operator, operand1, operand2)
+			if operator is FUNCTION_CALL_OPERATOR:
+				# In this case the operand2 is a list of function args to pass as further operands
+				lst[i - 1] = OperatorExpression(operator, operand1, *operand2)
+			else:
+				# TODO Join OperatorExpression objects if the operator is the same and accepts more than two operands
+				lst[i - 1] = OperatorExpression(operator, operand1, operand2)
 
 	# Return the finalised (sub-)expression
 	if not lst:
@@ -722,8 +747,8 @@ def _finalise_subexpression(lst: List[Union[Expression, Operator]]) -> Expressio
 		raise ExpressionParsingError("Invalid expression: missing operator or comma")
 
 
-class FilterExecutionContext(collections.abc.MutableMapping):
-	"""A context looking up variables/constants/functions etc. needed for filter execution.
+class EvaluationContext(collections.abc.MutableMapping):
+	"""A context looking up variables/constants/functions etc. needed for expression evaluation.
 
 	Set and lookup of keys can use the dot-syntax to address values of sub-mappings (mappings as values).
 
@@ -772,7 +797,7 @@ class FilterExecutionContext(collections.abc.MutableMapping):
 		"""Set the secondary lookup dict, which is not modified within this class."""
 		self._secondary = secondary
 
-	def with_secondary(self, secondary: Mapping) -> "FilterExecutionContext":
+	def with_secondary(self, secondary: Mapping) -> "EvaluationContext":
 		"""Return a new FilterExecutionContext with the existing primary and the given secondary.
 
 		Note that the used primary lookup dict is exactly the same, it's not copied!

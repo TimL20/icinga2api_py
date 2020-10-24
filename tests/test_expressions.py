@@ -8,9 +8,6 @@ import pytest
 from icinga2api_py.expressions import *
 
 
-#: Empty context object for multiple usages
-EMPTY_CONTEXT = FilterExecutionContext()
-
 #: Literals as string and value tuples
 LITERALS = (
 	('"a"', "a"),
@@ -81,11 +78,14 @@ def test_variable_expression_fails(string):
 
 
 def test_function_expression():
-	"""Test FunctionExpression."""
+	"""Test function expression (expression with function operator)."""
 	name = "a"
-	o = VariableExpression(name)(1, 2, 3)
-	assert o.symbol == name
-	assert o.args == (1, 2, 3)
+	v = VariableExpression(name)
+	o = v(1, 2, 3)
+	assert isinstance(o, OperatorExpression)
+	# Operands are the VariableExpression object and function args
+	assert tuple(o.operands) == (v, 1, 2, 3)
+	assert o.operator is FUNCTION_CALL_OPERATOR
 
 
 def test_operator_basics():
@@ -115,6 +115,7 @@ def test_operator_basics():
 
 
 @pytest.mark.parametrize("string, args, res", (
+		# Binary
 		("<", (0, 1), True), ("<", (1, 0), False),
 		("<=", (0, 1), True), ("<=", (1, 0), False),
 		("==", (0, 0), True), ("==", (1, 0), False),
@@ -124,12 +125,27 @@ def test_operator_basics():
 		("&&", (1, 1, 1), True), ("&&", (1, 0, 1), False),
 		("||", (1, 0, 0), True), ("||", (0, 0, 0), False),
 		# Arithmetic
-		("+", (1, 2), 3), ("-", (3, 2), 1),
-		("*", (2, 3), 6), ("/", (6, 3), 2),
+		("+", (1, 2), 3),
+		("-", (3, 2), 1), ("-", (2, 3), -1),
+		("*", (2, 3), 6),
+		("/", (6, 4), 1.5),
+		# Ternary
+		("?", (True, 2, 3), 2), ("?", (False, 2, 3), 3),
 ))
 def test_operators_concrete(string, args, res):
 	"""Test concrete operators."""
 	assert Operator.get(string, False).operate(*args) == res
+
+
+@pytest.mark.parametrize("string, operand, res", (
+		# Unary
+		("!", False, True), ("!", True, False),
+		("-", 1, -1), ("-", -2, 2),
+		("+", 1, 1), ("+", 2, 2),
+))
+def test_operators_concrete_unary(string, operand, res):
+	"""Test unary operators."""
+	assert Operator.get(string, True).operate(operand) == res
 
 
 @pytest.mark.parametrize("operator, string, too_less, too_much", (
@@ -154,7 +170,7 @@ def test_operator_print(operator, string, too_less, too_much):
 
 
 @pytest.mark.parametrize("operator", (
-	Operator.get("[]", False), Operator.get(".", False),
+	Operator.get("[", False), Operator.get(".", False),
 ))
 def test_operator_indexer(operator):
 	"""Test the "indexer" operators."""
@@ -182,8 +198,6 @@ def test_operator_indexer(operator):
 
 
 # TODO add Expression basics test
-
-# TODO add Expression to str test
 
 
 @pytest.mark.parametrize("string, cls", (
@@ -225,6 +239,7 @@ def test_parsing_fails(string):
 
 @pytest.mark.parametrize("string1, string2", (
 		('a.b=="a.b"', 'a.b=="a.b"'),
+		("1+2*3", "1+(2*3)"),
 		("a.b.c==1", "(a.b).c==1"),
 		("a.b==1", "(a.b)==(1)"),
 		("a.b(1)", "(a.b(1))"),
@@ -261,7 +276,7 @@ h}}} && i > j || k.l["m"][ n/4+5 ].o["p"] == 6.7)
 		[+8, ][0] > [-9][0] 
 		&& (true && !false)
 	)
-	&& q(r) == s(t, u, v)
+	&& q(r) == s(10, t, u)
 )
 """
 
@@ -301,24 +316,29 @@ def test_parsing_maxi():
 	assert o.operator == BuiltinOperator.OR
 	# k.l["m"][ n/4+5 ].o["p"]
 	o = getter(0, 1, 1, 1, 0)
-	# TODO this fails because of different precedence of the indexers...
-	# 	Problem is, that array/dict subscripts are resolved earlier in parsing than dot-indexer
 	assert o.operator == Indexer.SUBSCRIPT
-	assert o.operands[1] == "p"
+	assert o.operands[1] == LiteralExpression('"p"', "p")
 	# k.l["m"][ n/4+5 ].o
 	o = getter(0, 1, 1, 1, 0, 0)
 	assert o.operator == Indexer.INDEX
+	# n/4+5
+	o = getter(0, 1, 1, 1, 0, 0, 0, 1)
+	assert o.evaluate({"n": 8}) == 7
 	# k.l["m"][ n/4+5 ]
 	o = getter(0, 1, 1, 1, 0, 0, 0)
 	assert o.operator == Indexer.SUBSCRIPT
-	assert o.operands[1].evaluate({"n": 8}) == 7
-	context = {"k.l.m": [0, 1, 2, 3, 4, 5, 11]}
-	assert o.evaluate(context) == 1
+	context = EvaluationContext({"k.l.m": [0, 1, 2, 3, 4, 5, 6, 11], "n": 8})
+	assert o.evaluate(context) == 11
 	# [+8, ][0]
 	o = getter(1, 0, 0, 0)
 	assert o.operator == Indexer.SUBSCRIPT
-	assert o.operands[0][0].operator == BuiltinOperator.PLUS
-	assert o.operands[0].evaluate(None) == [8]
+	assert o.evaluate(None) == 8
+	# [+8, ]
+	o = getter(1, 0, 0, 0, 0)
+	assert isinstance(o, Expression)
+	assert isinstance(o, collections.abc.Sequence)
+	assert o[0].operator == BuiltinOperator.PLUS
+	assert list(o.evaluate(None)) == [8.0]
 	# [-9][0]
 	o = getter(1, 0, 0, 1)
 	assert o.operator == Indexer.SUBSCRIPT
@@ -330,7 +350,7 @@ def test_parsing_maxi():
 	assert o.operands[1].operator == BuiltinOperator.NOT
 	# s(t, u, v)
 	o = getter(1, 1, 1)
-	assert isinstance(o, FunctionCallExpression)
+	assert o.operator is FUNCTION_CALL_OPERATOR
 	flag = False
 
 	def fun(t, v, u):
@@ -338,17 +358,19 @@ def test_parsing_maxi():
 		flag = True
 		return t + v - u
 
-	assert o.evaluate({"s": fun, "t": 10, "v": 9, "u": 8}) == 11
+	assert o.evaluate({"s": fun, "t": 9, "u": 8}) == 11
 	assert flag
 
 
 @pytest.fixture(scope="function")
 def context():
 	"""FilterExecutionContext object."""
-	o = FilterExecutionContext(secondary={"s": 9})
+	o = EvaluationContext(secondary={"s": 9})
 	o["double"] = lambda x: x*2
 	o["a"] = [0, 1]
 	o["d"] = {"b": 2, "c": 3}
+	o["d2.b"] = 2
+	o["d2.c"] = 3
 	o["e"] = 5
 	o["z"] = 6
 	return o
@@ -359,6 +381,7 @@ def test_context(context):
 	assert context["double"](2) == 4
 	assert context["e"] == 5
 	assert context["d.c"] == 3
+	assert context["d2.c"] == 3
 	assert context["s"] == 9
 	context["z.a"] = 2
 	assert context["z.a"] == 2
@@ -400,7 +423,7 @@ def test_context_with_secondary(context):
 ))
 def test_string_execution(string, context, res):
 	"""Test filter string execution."""
-	context = FilterExecutionContext(context)
+	context = EvaluationContext(context)
 	expression = Expression.from_string(string)
 	assert expression.evaluate(context) == res
 
