@@ -85,5 +85,5 @@ autodoc_default_options = {
     # Order attributes by occurance in source code
     "member-order": "bysource",
     # Include some special methods
-    "special-members": "__call__, __getattr__, __setattr__"
+    "special-members": "__call__, __getattr__, __setattr__, __getitem__"
 }

@@ -213,6 +213,8 @@ def test_parsing_simple(string, cls):
 	"""Test parsing very simple expressions."""
 	o = Expression.from_string(string)
 	assert isinstance(o, cls)
+	# Check that the subclass's from_string returns the same type
+	assert type(getattr(cls, "from_string")(string)) is cls
 
 
 @pytest.mark.parametrize("string", (

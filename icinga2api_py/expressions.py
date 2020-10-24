@@ -1,28 +1,32 @@
 # -*- coding: utf-8 -*-
-"""This module implements parsing of Icinga filters.
+"""This module implements parsing of simple Icinga expressions.
 
 Written with a glance on https://github.com/Icinga/icinga2/blob/master/lib/config/expression.hpp
 and https://github.com/Icinga/icinga2/blob/master/lib/config/expression.cpp
 as well as https://github.com/Icinga/icinga2/blob/master/lib/config/config_lexer.ll
 
 Expressions can come very different:
-	- Expressions can be joined to more complex expressions, usually with a logical operator
-	- Simple comparative operators compare the values of their two operands (==, !=, <, ...)
-	- Unary operators operate (obviously) on one operand (!, ~)
-	- Another operation is a method call on an attribute
+	- The most simple expressions are literals like numbers and strings
+	- It's possible to use variables
+		- Their values are unknown during parsing / creating an expression
+		- They are substituted to a literal during evaluation
+	- Arrays and dicitonaries can store multiple expressions
+	- Operators act on one or more expression
+		- Unary operators on one expression (e.g. !, ~)
+		- Binary operators on two expressions (e.g. ==, <=, ||, /, and many more)
+			- Special binary operators are array/dictionary subscripts and attribute access
+		- Operators are applied in order of their precedence
+			- Parenthesis allow explicit precedence
+	- Also a possible operation is a method call
 		- Fully implementing that without using IOM is at least very difficult, if not impossible
 		- An implementation that is at least better (not necessarily complete) can be done with IOM
 	- Similar to methods, the use of global functions is also allowed, e.g. match, regex, typeof, ...
-		- It is possible to add global functions via configuration
+		- It is possible to add global functions via Icinga configuration
 		- This seems therefore impossible to fully implement
-	- And also there is the possibility that there is no operator at all, in this case it's similar to Python's
-		automatic bool() interpretation in if-clauses (e.g. empty strings are False), but also checks whether this
-		attribute is defined (True if defined, False if not)
-- Nesting any filters with explicit precedence (using parenthesis) is possible
 
 Taking these things into account, it is at least *very, very* difficult to implement expressions in a way, that
 this library can fully emulate the expressions of Icinga; it's propably impossible. That why, it is foolish to try, so
-this is not the goal of this class or module, or even of this library.
+this is not the goal of this module, or even of this library.
 The real stuff must be done by Icinga itself, no matter what is implemented here.
 
 This library mainly only cares of "filters" anyway. A filter is an expression that at least evaluates to one literal,
@@ -33,36 +37,35 @@ to True or False without taking object attributes into account.
 The first goal of this module is to understand what is done with a filter at a certain level:
 
 - The structure of the filter
-- What is an operator, what are its operands
+- What is an operator, what are its operands (= expressions it acts on)
 - Evaluate filters that only use "simple" operators
 	- There is no definition of "simple"
 	- And, or, == and != are definitely simple
+	- See the :class:`BuiltinOperator` enum for supported simple operators
 
-The second goal is to create Icinga-compliant filter strings in an OOP-manner
+The second goal of this module is to enable the user of easily creating such filters in an object-oriented manner
 
 - Syntactical correct, but without really looking at semantics
 - Implementing all "simple" operators, nesting filters with precedence, using attributes with Attribute objects
 
-This class implements both nested filters and simple filters. Both are created by passing an operator and its
-operands. The operands can be Expression objects (e.g. Filter objects) themselves, or values.
-
-The following things are currently not implemented and have no note to get implemented:
-- Assignment, definition of objects/variables/functions/..., mutability in general
-- Reference/Dereference operations (&/*)
-- Bit operation (Bit-Or/And/XOR, ..., Shifting, ...)
-- In / not in Operator
-- Dictionary expressions
-- Conditional expressions (incl. lambda)
-- Loops
-- Imports, Exceptions, Apply rules, namespaces, Library expression, Include expression, Try-except expression
-- Comments
+The following things are **not** implemented by this module:
+	- Assignment, definition of objects/variables/functions/..., mutability in general
+	- Reference/Dereference operations
+	- Bit operation (Bit-Or/And/XOR, ..., Shifting, ...)
+	- In / not in Operator
+	- Dictionary expressions
+		- Dictionary subscript is however implemented, it's just not possible to define a dictionary
+	- Conditional expressions (incl. lambda)
+	- Loops
+	- Imports, Exceptions, Apply rules, namespaces, Library expression, Include expression, Try-except expression
+	- Comments
 """
 
 import abc
 import collections.abc
 import enum
 import itertools
-from typing import Union, Optional, Any, Sequence, Iterable, Generator, Callable, Mapping, MutableMapping, List, Tuple
+from typing import Union, Optional, Sequence, Iterable, Generator, Callable, Mapping, MutableMapping, List, Tuple
 import operator as op
 import re
 
@@ -100,7 +103,11 @@ def parse_duration_literal(string: str) -> float:
 
 
 class Expression(abc.ABC):
-	"""Abstract expression."""
+	"""Abstract expression.
+
+	This is an abstract base class to be extended. This class defines the interface for any Icinga expression to be
+	implemented, and also implements useful defaults.
+	"""
 
 	def __init__(self, symbol):
 		self.symbol = symbol
@@ -111,9 +118,21 @@ class Expression(abc.ABC):
 
 	@abc.abstractmethod
 	def evaluate(self, context: Mapping):
+		"""Evaluate the expression.
+
+		:param context: Context for this evaluation.
+			This is required to be a mapping object. It's recommended to use a :class:`EvaluationContext` to handle
+			dot-indexing the way this module expects it.
+		:returns: A Python object this expression evaluates to with this context
+		:raises: :class:`exceptions.ExpressionEvaluationError` in case evaluation was not possible.
+			This is the case, when the expression can't be evaluated locally, e.g. when it uses an operator or
+			expression type not implemented here, or in case a function or variable was used, that is not defined in the
+			context.
+			# TODO raise a KeyError in the second case
+		"""
 		raise ExpressionEvaluationError()
 
-	def evaluate_many(self, context: Optional["FilterExecutionContext"] = None) -> Callable[[Mapping], bool]:
+	def evaluate_many(self, context: Optional["EvaluationContext"] = None) -> Callable[[Mapping], bool]:
 		"""Get a filter function to execute this filter for many items.
 
 		This method was introduced for use of the returned callable in a Python filter statement as a filter function.
@@ -121,6 +140,8 @@ class Expression(abc.ABC):
 		is applied are used as the secondary context.
 		:meth:`evaluate` is used for expression evaluation with the resulting context.
 		"""
+		context = context if context is not None else EvaluationContext()
+
 		def evaluate(mapping) -> bool:
 			"""Execute a filter function."""
 			return self.evaluate(context.with_secondary(mapping))
@@ -128,8 +149,18 @@ class Expression(abc.ABC):
 		return evaluate
 
 	@classmethod
-	def from_string(cls, string):
-		"""Construct such an expression from a string."""
+	def from_string(cls, string: str) -> "Expression":
+		"""Construct such an expression from a string.
+
+		This default allows to parse every implemented expression type using :func:`expression_from_string`.
+		For simple expressions this methods should be overridden to efficiently parse the expression. However, this
+		default is useful for expressions that are allowed to contain other expressions, in which case it's required
+		to parse every implemented expression type anyway.
+
+		:returns: An Expression object
+		:raises: :class:`exceptions.ExpressionParsingError` if the string is not a valid expression or turns out not to be an Expression of
+			a different type.
+		"""
 		ret = expression_from_string(string)
 		if not isinstance(ret, cls):
 			raise ExpressionParsingError(f"Wrong type ({type(ret)} instead of {cls.__name__})")
@@ -158,14 +189,21 @@ class LiteralExpression(Expression):
 
 	def __init__(self, symbol, value):
 		super().__init__(symbol)
-		#: Value the literal evaluates to, parsing is done in from_string
-		self.value = value
+		self._value = value
+
+	@property
+	def value(self):
+		"""Value the literal evaluates to, parsing is done in from_string."""
+		return self._value
 
 	def evaluate(self, context: Mapping):
+		"""Return the value this literal evaluates to."""
 		return self.value
 
 	@classmethod
-	def from_string(cls, string):
+	def from_string(cls, string) -> "LiteralExpression":
+		"""Parse the literal string and return a literal. Note that an Icinga string has to have quotes inside the
+		string."""
 		string = string.strip()
 		for pattern, converter in cls._LITERAL_PATTERNS:
 			if pattern.fullmatch(string):
@@ -193,7 +231,8 @@ class ArrayExpression(Expression, collections.abc.Sequence):
 	def __str__(self):
 		return f"[{', '.join(str(value) for value in self.values)}]"
 
-	def evaluate(self, context: Mapping):
+	def evaluate(self, context: Mapping) -> Sequence:
+		"""Return a sequence of items the values of this array evaluate to."""
 		ret = list()
 		for val in self.values:
 			try:
@@ -203,16 +242,17 @@ class ArrayExpression(Expression, collections.abc.Sequence):
 		return ret
 
 	def __getitem__(self, item):
+		"""Return a specific item by its index."""
 		return self.values[item]
 
 	def __len__(self):
 		return len(self.values)
 
 
-class _VariableExpressionMixin:
+class VariableExpressionMixin:
 	"""Mixin for expression with a type unknown at parsing time."""
 
-	def __call__(self: Expression, *args) -> "FunctionCallExpression":
+	def __call__(self: Expression, *args) -> "OperatorExpression":
 		"""Like in Python: Functions behave the same as callable variables."""
 		return OperatorExpression(FUNCTION_CALL_OPERATOR, *(self, *args))
 
@@ -221,7 +261,7 @@ class _VariableExpressionMixin:
 		return OperatorExpression(Indexer.SUBSCRIPT, self, item)
 
 
-class VariableExpression(Expression, _VariableExpressionMixin):
+class VariableExpression(Expression, VariableExpressionMixin):
 	"""A variable in an expression."""
 
 	#: What is valid as a variable here:
@@ -229,6 +269,7 @@ class VariableExpression(Expression, _VariableExpressionMixin):
 	VALIDATION_PATTERN = re.compile(r"^[a-zA-Z_]([a-zA-Z0-9_]+)*$")
 
 	def evaluate(self, context: Mapping):
+		"""Look up the variable in the given context."""
 		try:
 			return context[self.symbol]
 		except KeyError:
@@ -236,6 +277,11 @@ class VariableExpression(Expression, _VariableExpressionMixin):
 
 	@classmethod
 	def from_string(cls, string):
+		"""Create a VariableExpression from string.
+
+		This method checks whether the given string is a valid variable name. If yes, a VariableExpression is returned
+		with that variable name. Otherwise a :class:`exceptions.ExpressionParsingError` is raised.
+		"""
 		# Check whether that variable name is generally OK
 		if not cls.VALIDATION_PATTERN.match(string):
 			raise ExpressionParsingError(f"Invalid variable expression: {string}")
@@ -248,11 +294,11 @@ class VariableExpression(Expression, _VariableExpressionMixin):
 			raise ExpressionParsingError(f"Invalid variable expression: {string}")
 
 
-class OperatorExpression(Expression, _VariableExpressionMixin):
+class OperatorExpression(Expression, VariableExpressionMixin):
 	"""Represents an expression that consists of at least one operator and one other expression.
 
 	:param operator: The operator used in this filter.
-	:param operands: Operands = other expressions as an sequence
+	:param operands: Operands = other expressions the operator works on in this expression
 	"""
 
 	def __init__(self, operator: "Operator", *operands):
@@ -272,7 +318,7 @@ class OperatorExpression(Expression, _VariableExpressionMixin):
 
 
 class Operator:
-	"""Operator used in filters."""
+	"""Operator used in expressions."""
 
 	class Type(enum.IntEnum):
 		"""Type of Operator."""
@@ -299,7 +345,7 @@ class Operator:
 		def check_operands_number(self, n) -> int:
 			"""Check whether the given number of operands is OK for this operator.
 
-			:return The difference to the expected number of operands (-> 0 means alright)
+			:return: The difference to the expected number of operands (-> 0 means alright)
 			"""
 			if self is self.MISCELLANEOUS:
 				return 0
@@ -334,7 +380,7 @@ class Operator:
 		"""Register this operator for translation (used in filter parsing etc.).
 
 		:param force: True to overwrite previous registrations
-		:returns True on success, False otherwise
+		:return: True on success, False otherwise
 		"""
 		if self.type is Operator.Type.TERNARY or self.type is Operator.Type.MISCELLANEOUS:
 			key = self.symbol[0]
@@ -362,16 +408,14 @@ class Operator:
 	def evaluate(self, context: Mapping, *operands):
 		"""Evaluate an OperatorExpression.
 
-		The reason why this is not done in the OperatorExpression class, that evaluation of operands can depend on the
-		operator.
+		The reason why this is not done in the OperatorExpression class is, that evaluation of operands can differ for
+		some operators.
 		"""
 		values = list()
 		for operand in operands:
 			try:
 				value = operand.evaluate(context)
 				values.append(value)
-			except ExpressionParsingError:
-				raise
 			except AttributeError:
 				# Pass operand as raw value
 				values.append(operand)
@@ -392,6 +436,7 @@ class Operator:
 			return NotImplemented
 
 	def __str__(self):
+		"""Returns the operator symbol."""
 		return self.symbol
 
 	def operand_strings(self, ops: Iterable) -> Generator[str, None, None]:
@@ -466,7 +511,10 @@ class BuiltinOperator(Operator, enum.Enum):
 
 
 class Indexer(Operator, enum.Enum):
-	"""Indexer(s) are the operators for subscription and attribute access."""
+	"""Indexer(s) are the operators for subscription and attribute access.
+
+	These operators are a bit special and therefore override the :meth:`evaluate` method.
+	"""
 
 	def __new__(cls, *args):
 		return Operator.__new__(cls)
@@ -516,10 +564,13 @@ class Indexer(Operator, enum.Enum):
 
 
 class FunctionCall(Operator):
-	"""Function call operator."""
+	"""Function call operator.
+
+	This class implements an subclass of Operator that just calls a function as its operation.
+	Use the :obj:`FUNCTION_CALL_OPERATOR` if you need to use the function call operator however.
+	"""
 
 	def __init__(self):
-		# TODO check precedence value in Icinga language reference
 		super().__init__("()", Operator.Type.MISCELLANEOUS, 1, self._operate)
 
 	@staticmethod
@@ -533,12 +584,16 @@ class FunctionCall(Operator):
 		return f"{operands[0]}({', '.join(str(operand) for operand in operands[1:])})"
 
 
+#: Function call operator object
 FUNCTION_CALL_OPERATOR = FunctionCall()
 FUNCTION_CALL_OPERATOR.register(True)
 
 
 def expression_from_string(string: str) -> Expression:
-	"""Parse an expression of unknown type from a string."""
+	"""Parse an expression of unknown type from a string.
+
+	This method is used by :meth:`Expression.from_string`.
+	"""
 	try:
 		return _string_to_expression(string)
 	except IndexError:
@@ -643,7 +698,7 @@ def _closing_brackets(predecessor, bracket: str, lst: Sequence) -> Sequence:
 	:param bracket: The closing bracket char
 	:param lst: A sequence of expressions, operators and commas inside the brackets
 
-	:return A sequence of things to append instead of predecessor and the brackets
+	:return: A sequence of things to append instead of predecessor and the brackets
 	"""
 	opening = lst[0]
 	closing = bracket
@@ -699,7 +754,10 @@ def _closing_brackets(predecessor, bracket: str, lst: Sequence) -> Sequence:
 		return ArrayExpression(*values),
 
 
-def _finalise_subexpression(lst: List[Union[Expression, Operator]]) -> Expression:
+_TEMP_STRUCTURE_TYPE = List[Union[Expression, Operator, "_TEMP_STRUCTURE_TYPE"]]
+
+
+def _finalise_subexpression(lst: _TEMP_STRUCTURE_TYPE) -> Expression:
 	"""Helper function: finalise a (sub-)expression -
 	this is called with stuff inside closing parenthesis and between commas in an array."""
 
@@ -798,7 +856,7 @@ class EvaluationContext(collections.abc.MutableMapping):
 		self._secondary = secondary
 
 	def with_secondary(self, secondary: Mapping) -> "EvaluationContext":
-		"""Return a new FilterExecutionContext with the existing primary and the given secondary.
+		"""Return a new EvaluationContext with the existing primary and the given secondary.
 
 		Note that the used primary lookup dict is exactly the same, it's not copied!
 		"""

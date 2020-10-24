@@ -2,4 +2,10 @@
 venv/
 VENV/
 
+.eggs/
+icinga2api_py.egg-info/
+
+.pytest_cache/
+.coverage
+
 .idea/

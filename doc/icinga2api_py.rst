@@ -17,15 +17,9 @@ icinga2api\_py.attrs module
 ---------------------------
 
 .. automodule:: icinga2api_py.attrs
-   :exclude-members: BuiltinOperator
    :members:
    :undoc-members:
    :show-inheritance:
-   
-   .. autoclass:: BuiltinOperator
-      :members:
-      :show-inheritance:
-      :undoc-members:
 
 icinga2api\_py.clients module
 -----------------------------
@@ -39,6 +33,14 @@ icinga2api\_py.exceptions module
 --------------------------------
 
 .. automodule:: icinga2api_py.exceptions
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+icinga2api\_py.expressions module
+---------------------------------
+
+.. automodule:: icinga2api_py.expressions
    :members:
    :undoc-members:
    :show-inheritance:
