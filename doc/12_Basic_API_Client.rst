@@ -37,7 +37,7 @@ Constructing an API client is easily done with a base URL and optionally some pa
 -  The url is the Icinga2 API URL endpoint base.
    The client will try to append default scheme (https), port (5665) and
    API version (v1) if not specified, so the following URLs will do the
-   same as the URL above: "localhost", "localhost:5665", ...
+   same as the URL above: "icingahost", "icingahost:5665", ...
 -  The sessionparams (keyword arguments) are key-value-pairs of
    attributes for the Session. Every requests.Session attribute is
    possible. It is important to use it for authentication.

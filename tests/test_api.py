@@ -81,24 +81,44 @@ def api_client(request, mocked_api_client) -> API:
 #######################################################################################################################
 
 
-# It doesn't matter what comes out, but it all has to be the same...
+# What has to come out of prepare_base_url for the first few parameters
 EXPECTED_PREPARED_BASE_URL = API.prepare_base_url("https://icinga:5665/")
 
 
-@pytest.mark.parametrize("url", (
-	"icinga",
-	"icinga:5665",
-	"https://icinga",
-	"https://icinga:5665",
-	"https://icinga/v1",
-	"https://icinga:5665/v1",
-	"https://icinga/v1/",
-	"icinga/v1/",
-	"icinga/v1",
+@pytest.mark.parametrize("string, url", (
+		("icinga", None),
+		("icinga:5665", None),
+		("https://icinga", None),
+		("https://icinga:5665", None),
+		("https://icinga/v1", None),
+		("https://icinga:5665/v1", None),
+		("https://icinga/v1/", None),
+		("icinga/v1/", None),
+		("icinga/v1", None),
+		# Others
+		("host.my-domain:1234", "https://host.my-domain:1234/v1/"),
+		("12.12.12.12", "https://12.12.12.12:5665/v1/"),
+		("12.12.12.12/v1", "https://12.12.12.12:5665/v1/"),
+		("12.12.12.12:1234", "https://12.12.12.12:1234/v1/"),
+		("http://[1234:abef::0000]/v1", "http://[1234:abef::0000]:5665/v1/"),
+		("[1234:abef::0000]:1234", "https://[1234:abef::0000]:1234/v1/"),
 ))
-def test_prepare_base_url(url):
+def test_prepare_base_url(string, url):
 	"""Test API.prepare_base_url(url)."""
-	assert API.prepare_base_url(url) == EXPECTED_PREPARED_BASE_URL
+	url = url or EXPECTED_PREPARED_BASE_URL
+	assert API.prepare_base_url(string) == url
+
+
+@pytest.mark.parametrize("url", (
+	"://abc",
+	":abc",
+	"/v1",
+	1,
+))
+def test_prepare_base_url_fail(url):
+	"""Test API.prepare_base_url(url) with malformed URLs."""
+	with pytest.raises(ValueError):
+		API.prepare_base_url(url)
 
 
 class TestAPIRequest:
@@ -231,7 +251,7 @@ def test_request_warnings():
 		req.data = None  # This should not trigger a warning
 	assert len(record) == 1
 
-	with pytest.warns(Warning):
+	with pytest.warns(Warning) as record:
 		req.files = 1
 		req.files = None
 	assert len(record) == 1

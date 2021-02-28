@@ -8,15 +8,18 @@ What it does is to set up a requests.Session (which it extends), build URL and b
 at the end. By default the constructed request is a :class:`icinga2api_py.models.APIRequest`, and the constructed
 response a :class:`icinga2api_py.models.APIResponse`. It's possible to override these defaults in a subclass.
 """
+import re
+from typing import Union
 
 import requests
-from typing import Union
 
 from .models import APIRequest, APIResponse
 
-# Default request class
+#: URL RegEx with groups for every replaceabel/optional part
+_URL_REGEX = re.compile(r"(\w+://)?([\w.\-]+|\[[a-fA-F0-9:]+])(:\d+)?(/v\d+)?(/)?")
+#: Default request class
 DEFAULT_REQUEST_CLASS = APIRequest
-# Default response class
+#: Default response class
 DEFAULT_RESPONSE_CLASS = APIResponse
 
 
@@ -36,7 +39,7 @@ class API(requests.Session):
 		"""Construct the API session with an URL and "optional" session parameters.
 
 		:param url: URL, e.g. "https://icingahost:5665/v1/", see :meth:`prepare_base_url` for what is expected here
-		:param **sessionparams: Keyword arguments are set as session attribute. Every attribute of a requests.Session
+		:param **sessionparams: Keyword arguments are set as session attributes. Every attribute of a requests.Session
 					is allowed, these include: headers (default headers), auth, proxies, params (default
 					parameters), verify, cert (client certificate path), trust_env and more.
 		"""
@@ -55,29 +58,23 @@ class API(requests.Session):
 		"""Prepare the base_url for usage.
 
 		This static method adds scheme, trailing '/', API version suffix and Icinga port defaults if not specified.
+		Therefore any of these parts are optional, just "host" leads to the same as "https://host:5665/v1/".
 		This method is called by :meth:`__init__`.
 
 		:param url: The URL to prepare for client usage
-		:raises ValueError: if the url parameter is False in a boolean context
+		:raises ValueError: in case it is not possible to prepare the URL, especially when it's malformed
 		:return: The prepared base URL
 		"""
-		if not url:
+		try:
+			parts = _URL_REGEX.match(url).groups()
+		except (AttributeError, TypeError):
 			raise ValueError(f"Unable to prepare URL {url}")
-		# Prefix https if not specified
-		if "://" not in url:
-			url = f"https://{url}"
-		# Append '/' to URL if not already there
-		if url[-1:] != "/":
-			url = f"{url}/"
-		# Suffix API version
-		if url[-3:-2] != "v":
-			url = f"{url}v1/"
-		# Set port if not specified
-		scheme, _, host, path = url.split('/', 3)
-		if ":" not in host:
-			url = f"{scheme}//{host}:5665/{path}"
-
-		return url
+		defaults = ("https://", None, ":5665", "/v1", "/")
+		try:
+			return "".join(part or default for part, default in zip(parts, defaults))
+		except TypeError:
+			# None still in one of the URL parts
+			raise ValueError(f"Unable to prepare URL {url}")
 
 	@property
 	def request_class(self):
