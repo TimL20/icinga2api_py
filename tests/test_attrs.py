@@ -50,7 +50,15 @@ TEST_DATA = (
 		"joined": "joins.jointype.a.x",
 		"taot": "x",
 	},
-	{  # 4
+	{  # 4 - similar to 3, but with attrs, so that a is the attribute and therefore not eliminated in "taot"
+		"init_args": ("attrs.a", ),
+		"awareness": False,
+		"string": "attrs.a",
+		"icinga": "a",
+		"joined": "joins.jointype.a",
+		"taot": "attrs.a",
+	},
+	{  # 5
 		"init_args": ("otype.x", True),
 		"awareness": True,
 		"string": "attrs.x",
@@ -58,7 +66,7 @@ TEST_DATA = (
 		"joined": "joins.jointype.x",
 		"object_joined": "joins.otype.x",
 	},
-	{  # 5
+	{  # 6
 		"init_args": ("otype.x", "otype"),
 		"awareness": True,
 		"string": "attrs.x",
@@ -66,21 +74,21 @@ TEST_DATA = (
 		"joined": "joins.jointype.x",
 		"object_joined": "joins.otype.x",
 	},
-	{  # 6
+	{  # 7
 		"init_args": ("joins.jtype.x", ),
 		"awareness": False,
 		"string": "joins.jtype.x",
 		"icinga": "jtype.x",
 		"joined": "joins.jointype.x",
 	},
-	{  # 7
+	{  # 8
 		"init_args": ("joins.jtype.x", True),
 		"awareness": False,  # Awareness should be ignored, because "joins" is not a valid object type
 		"string": "joins.jtype.x",
 		"icinga": "jtype.x",
 		"joined": "joins.jointype.x",
 	},
-	{  # 8
+	{  # 9
 		"init_args": ("joins.jtype.x", "otype"),
 		"awareness": True,
 		"string": "joins.jtype.x",
@@ -89,14 +97,14 @@ TEST_DATA = (
 		"object_joined_overriden": "joins.otype.x",
 
 	},
-	{  # 9
+	{  # 10
 		"init_args": ("x", ),
 		"awareness": False,
 		"string": "x",
 		"icinga": "x",
 		"joined": "joins.jointype.x",
 	},
-	{  # 10
+	{  # 11
 		"init_args": ("otype", True),
 		"awareness": True,
 		"string": "attrs",
@@ -104,7 +112,7 @@ TEST_DATA = (
 		"joined": "joins.jointype",
 		"object_joined": "joins.otype",
 	},
-	{  # 11
+	{  # 12
 		"init_args": ("otype", "otype"),
 		"awareness": True,
 		"string": "attrs",
@@ -192,6 +200,17 @@ SET_DATA = (
 			Attribute("attrs", object_type="a"),  # attrs of object a
 			Attribute("attrs", object_type="b"),  # attrs of object b = joins.b of object a
 		)
+	},
+	{
+		"object_type": None,  # No type awareness
+		"attrs": (
+			"attrs.a", "attrs.b", "joins.jo",
+		),
+		"res": {"attrs.a", "attrs.b", "joins.jo"},
+		"type_b": {"attrs.a", "attrs.b", "joins.jo"},  # attrs because type is set to b and
+		"contains": (
+			"attrs.a.b",  # Because of attrs.a
+		),
 	},
 )
 

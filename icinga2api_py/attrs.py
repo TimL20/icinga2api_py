@@ -64,7 +64,7 @@ class Attribute(VariableExpression):
 	__slots__ = ("_lead_key", "_join_type", "_attrs", "_object_type")
 
 	#: Attributes considered for cloning and comparison
-	_object_attributes = ("__lead_key", "join_type", "attrs", "object_type")
+	_object_attributes = ("_lead_key", "join_type", "attrs", "object_type")
 
 	class Format(enum.Enum):
 		"""Attribute representation format."""
@@ -114,6 +114,7 @@ class Attribute(VariableExpression):
 
 		#: For which type of an object the attribute description was created, or None if not aware of an object type.
 		#: An empty string or any special attribute keys are not valid object types.
+		#: None as object_type means this attribute is not object aware
 		self._object_type = object_type
 
 		# Get first+descr into these variables
@@ -132,7 +133,8 @@ class Attribute(VariableExpression):
 		else:
 			self._attrs = [first, *descr]
 
-	# TODO implement Array item acces via [index]
+		# Call super's init method and therefore asign the lookup symbol
+		super().__init__(".".join(iter(self)))
 
 	@classmethod
 	def _plain_init(
@@ -212,8 +214,9 @@ class Attribute(VariableExpression):
 
 		attrs = self.attrs
 		try:
-			# Cut off first item if it's the object type
-			attrs = attrs[1:] if attrs[0] == object_type else attrs
+			# Cut of first item in case that specifies the object that is now set
+			if attrs[0] == object_type and self._lead_key != _LeadKey.ATTRS:
+				attrs = attrs[1:]
 		except IndexError:
 			pass
 		if self.join_type == object_type:
@@ -285,9 +288,18 @@ class Attribute(VariableExpression):
 
 
 class AttributeSet(collections.abc.MutableSet):
-	"""Represents a mutable list of attributes."""
+	"""Represents a mutable set of attributes.
 
-	def __init__(self, object_type: Optional[str], initial: Iterable = None):
+	The set always works with :class:`attrs.Attribute`s in the background, it will however accept other accepts other
+	types and uses :method:`attrs.Attribute.ensure_type`.
+	The attribute set can be type aware, which means that every of its attribute objects has the same object type (and
+	therefore also is type aware of course).
+
+	:param object_type: Set type awareness to this object type
+	:param initial: Iterable of initial attributes to add
+	"""
+
+	def __init__(self, object_type: Optional[str] = None, initial: Iterable = None):
 		#: The object type this list has attributes for
 		self._object_type = object_type
 		initial = (self._enforce_type(attr) for attr in (initial or tuple()))
@@ -303,7 +315,7 @@ class AttributeSet(collections.abc.MutableSet):
 	def object_type(self, object_type: Optional[str]):
 		"""Set a new object type."""
 		self._object_type = object_type
-		# Enforce new object type for
+		# Enforce new object type for all attribute objects
 		initial = (self._enforce_type(attr) for attr in self._attrs)
 		self._attrs = set(initial)
 
