@@ -1,9 +1,11 @@
+.. _doc-client:
+
 Client
 ======
 
-The class ``Client`` is a subclass of ``API`` (usage described in “Basic
-API Client”). This client uses a special query to create an object
-containg the result(s) of a query (instead of the default
+The class ``Client`` is a subclass of ``API`` (usage described in
+:ref:`doc-basic-api`). This client uses a special query to create an
+object containg the result(s) of a query (instead of the default
 ``APIResponse``). The class of the objects returned can be specified
 with the results_class parameter of the ``Client`` constructor. By
 default, the class is ``ResultsFromResponse``, but

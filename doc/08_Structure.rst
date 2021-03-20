@@ -1,3 +1,5 @@
+.. _doc-structure:
+
 Structure
 =========
 
@@ -40,7 +42,7 @@ Request-centered layer
    customization
 -  The client of this layer is ``API``, every other client of this
    library inherits from this one
--  Documented in “Basic_API_Client”
+-  Documented in :ref:`doc-basic-api`
 
 Result-centered layer
 ---------------------
@@ -48,6 +50,7 @@ Result-centered layer
 -  Focuses on getting the results of the Icinga API responses
 -  Also provides methods to easily work with the results, and optional
    features such as load-on-demand and caching
+- Documented in :ref:`doc-client`
 
 Simple-OO layer
 ---------------

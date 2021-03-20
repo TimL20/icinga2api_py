@@ -1,3 +1,5 @@
+.. _doc-basic-api:
+
 Basic API Client
 ================
 

@@ -2,7 +2,7 @@ StreamClient
 ============
 
 The class ``StreamClient`` is a subclass of ``API`` (usage described in
-“Basic API Client”). Making requests with this client works exactly the
+:ref:`doc-basic-api`). Making requests with this client works exactly the
 same as with ``API`` or also the non-streaming ``Client``. The
 StreamClient, as the name may suggest, adds the ability to easily
 consume streamed content. For Icinga this is important for the Event
